@@ -1,13 +1,21 @@
-# Make with
+# 🧰 Make with 
 
 This TypeScript library provides three utilities—`_with`, `make`, and `makeWith`—to streamline function composition, state management, and object creation with a functional programming approach. These tools are lightweight alternatives to traditional JavaScript patterns like the builder pattern, `this` with `bind` or `apply`, classes, and modules, offering type safety, immutability, and simplicity.
+
+## ✨ Key Features
+
+- **🔒 Type Safe** - Full TypeScript support with generics ensuring function signatures are preserved
+- **🛡️ Immutable** - Encourages explicit state management, reducing bugs from mutable state
+- **🚫 No `this`** - Eliminates binding issues common in object-oriented JavaScript
+- **🪶 Lightweight** - Minimal code footprint compared to classes or builders
+- **🧩 Flexible** - Supports multiple input styles for different use cases
 
 ## Table of Contents
 
 - [Installation](#installation)
 - [Why Use This Library?](#why-use-this-library)
 - [When Is It Useful?](#when-is-it-useful)
-- [How It’s an Alternative](#how-its-an-alternative)
+- [How It's an Alternative](#how-its-an-alternative)
   - [vs. Builder Pattern](#vs-builder-pattern)
   - [vs. `this` with `bind` or `apply`](#vs-this-with-bind-or-apply)
   - [vs. Classes](#vs-classes)
@@ -22,49 +30,49 @@ This TypeScript library provides three utilities—`_with`, `make`, and `makeWit
 
 ---
 
-## Installation
+## Installation 📦
 
 ```sh
 npm install @doeixd/make-with
 ```
 
 
-## Why Use This Library?
+## Why Use This Library? 🤔
 
 This library replaces complex, imperative patterns with functional, type-safe utilities. It eliminates boilerplate, reduces bugs from mutable state or `this` context, and provides a modular way to compose functions around shared data.
 
-## When Is It Useful?
+## When Is It Useful? 🎯
 
-- **Shared State**: When multiple functions need to operate on the same value without repeating it.
-- **Type-Safe Composition**: In TypeScript projects needing precise function signatures.
-- **Lightweight Utilities**: When classes or modules feel over-engineered.
-- **Immutability**: For predictable, side-effect-free code.
+- **📊 Shared State**: When multiple functions need to operate on the same value without repeating it.
+- **📐 Type-Safe Composition**: In TypeScript projects needing precise function signatures.
+- **🔍 Lightweight Utilities**: When classes or modules feel over-engineered.
+- **🧊 Immutability**: For predictable, side-effect-free code.
 
-## How It’s an Alternative
+## How It's an Alternative 🔄
 
-### vs. Builder Pattern
+### vs. Builder Pattern 🏗️
 - **Builder Pattern**: Uses a step-by-step object construction with mutable state, often chained (e.g., `.setX().setY().build()`).
 - **Library Alternative**: `make` and `makeWith` create function objects in one step, avoiding mutation and chaining complexity.
 - **Why Better**: Immediate, immutable results with less boilerplate.
 
-### vs. `this` with `bind` or `apply`
+### vs. `this` with `bind` or `apply` 🔗
 - **`this` with `bind`/`apply`**: Manually binds a context to functions, often verbose and error-prone due to `this` quirks.
 - **Library Alternative**: `makeWith` and `_with` bind a `subject` implicitly, avoiding `this` entirely.
 - **Why Better**: No context loss, cleaner syntax, and type safety.
 
-### vs. Classes
+### vs. Classes 🏛️
 - **Classes**: Encapsulate state and methods with `this`, risking mutation and binding issues.
 - **Library Alternative**: `makeWith` creates method-like objects with fixed state, `_with` provides stateless operations.
 - **Why Better**: Immutable, no `this`, simpler composition.
 
-### vs. Modules
+### vs. Modules 📦
 - **Modules**: Export static functions or objects, often requiring manual state injection or configuration.
 - **Library Alternative**: `make` bundles functions dynamically, `makeWith` adds state binding.
 - **Why Better**: Less setup, runtime flexibility, no file overhead.
 
-## Examples
+## Examples 💡
 
-### Math Operations (vs. Modules)
+### Math Operations (vs. Modules) 🧮
 
 **Problem**: You want reusable math utilities, traditionally exported from a module.
 
@@ -89,9 +97,8 @@ console.log(mathOps.add(2, 3)); // 5
 
 **Comparison**: No need for a separate module file or import statements. `make` dynamically creates an object, reducing overhead and keeping code local.
 
----
 
-### String Utilities (vs. Builder Pattern)
+### String Utilities (vs. Builder Pattern) 📝
 
 **Problem**: Build a string utility set, traditionally with a builder pattern.
 
@@ -122,11 +129,10 @@ const stringOps = make({
 console.log(stringOps.toUpper('hello')); // "HELLO"
 ```
 
-**Comparison**: `make` achieves the same result in one step, no chaining or class needed. It’s immutable and simpler, avoiding the builder’s verbosity.
+**Comparison**: `make` achieves the same result in one step, no chaining or class needed. It's immutable and simpler, avoiding the builder's verbosity.
 
----
 
-### Counter (vs. Classes)
+### Counter (vs. Classes) 🔢
 
 **Problem**: Create a counter with stateful operations, typically a class.
 
@@ -156,11 +162,10 @@ counter = makeWith(state)(increment, getCount); // Rebuild with new state
 console.log(counter.getCount()); // 5
 ```
 
-**Comparison**: `makeWith` avoids `this` and mutation, using explicit state updates. It’s more verbose for state changes but safer and more predictable, with no hidden side effects.
+**Comparison**: `makeWith` avoids `this` and mutation, using explicit state updates. It's more verbose for state changes but safer and more predictable, with no hidden side effects.
 
----
 
-### API Client (vs. `this` with `bind`/`apply`)
+### API Client (vs. `this` with `bind`/`apply`) 🌐
 
 **Problem**: Build an API client with shared config, traditionally using `bind`.
 
@@ -185,25 +190,23 @@ const api = makeWith(config)({
 api.get('users').then(console.log);
 ```
 
-**Comparison**: `makeWith` avoids `this` and `bind`, creating a clean object with methods in one step. It’s less prone to context errors (e.g., losing `this` when passing methods) and supports multiple operations naturally.
+**Comparison**: `makeWith` avoids `this` and `bind`, creating a clean object with methods in one step. It's less prone to context errors (e.g., losing `this` when passing methods) and supports multiple operations naturally.
 
----
 
-## Benefits
+## Benefits 🎁
 
-- **Type Safety**: Generics ensure function signatures are preserved.
-- **Immutability**: Encourages explicit state management, reducing bugs.
-- **No `this`**: Eliminates binding issues common in object-oriented JS.
-- **Lightweight**: Less code than classes or builders, no module files needed.
-- **Flexible**: Supports varied input styles for different use cases.
+- **🔒 Type Safety**: Generics ensure function signatures are preserved.
+- **🛡️ Immutability**: Encourages explicit state management, reducing bugs.
+- **🚫 No `this`**: Eliminates binding issues common in object-oriented JS.
+- **🪶 Lightweight**: Less code than classes or builders, no module files needed.
+- **🧩 Flexible**: Supports varied input styles for different use cases.
 
----
 
-## API Docs
+## API Docs 📚
 
 This section details the public API of the Functional Utilities Library, including function signatures, parameters, return types, exceptions, and examples. All functions are written in TypeScript with generics for type safety.
 
-### `_with`
+### `_with` 🔗
 
 Partially applies a value to a set of functions, returning an array of new functions with the value pre-applied.
 
@@ -239,9 +242,8 @@ console.log(getValue());    // 5
 console.log(increment(3));  // 8
 ```
 
----
 
-### `make`
+### `make` 🛠️
 
 Creates an object where each key is a function's name and each value is the function itself, accepting either an array of named functions or an object with function values. The updated implementation uses overloads to improve type preservation.
 
@@ -262,7 +264,7 @@ function make<Obj extends Record<string, (...args: any[]) => any>>(obj: Obj): Ob
 - **`obj: Obj`**: An object with string keys and function values (for the second overload).
 
 #### Returns
-- For array input: **`Record<string, F>`** - An object where each key is a function’s name (derived from the function’s `.name` property) and each value is the corresponding function.
+- For array input: **`Record<string, F>`** - An object where each key is a function's name (derived from the function's `.name` property) and each value is the corresponding function.
 - For object input: **`Obj`** - The same object passed in, preserving its exact type and function signatures.
 
 #### Throws
@@ -288,9 +290,8 @@ console.log(stringOps.toUpper('hello')); // "HELLO"
 console.log(stringOps.repeat('hi', 2));  // "hihi"
 ```
 
----
 
-### `makeWith`
+### `makeWith` 🔄
 
 Creates a function that builds an object of partially applied functions based on a subject, accepting either an array of named functions or an object with named functions. The updated implementation uses overloads for better type safety and inference.
 
@@ -341,24 +342,6 @@ const ops = makeWith({ value: 5 })(add);
 console.log(ops.add(3)); // 8, typed as (...args: any[]) => any
 ```
 
----
+## Conclusion 🎯
 
-### Notes
-- **Type Safety**: The use of overloads in `make` and `makeWith` ensures precise type inference, especially for object inputs, maintaining the integrity of function signatures.
-- **Immutability**: All returned objects and functions are immutable to promote predictable behavior.
-- **Naming**: The `_with` function uses an underscore prefix to avoid conflicts with the reserved `with` keyword in strict mode.
-
-This updated API enhances flexibility and usability, offering functional, type-safe alternatives to traditional patterns. For additional practical applications, refer to the [Examples](#examples) section.
-
----
-
-### Notes
-- **Type Safety**: All functions use generics to preserve argument and return types where possible, with TypeScript ensuring compatibility.
-- **Immutability**: Returned objects and functions are immutable, promoting predictable behavior.
-- **Naming**: `_with` uses an underscore prefix to avoid the reserved `with` keyword in strict mode.
-
-This API is designed for flexibility and ease of use, replacing traditional patterns with functional, type-safe alternatives. See the [Examples](#examples) section for practical applications and comparisons to other approaches.
-
-## Conclusion
-
-The `_with`, `make`, and `makeWith` utilities offer a functional, type-safe alternative to traditional JavaScript patterns. They replace the builder pattern’s chaining with single-step composition, eliminate `this` and binding hassles, simplify class-based state management with explicitness, and reduce module boilerplate with dynamic function grouping. Use this library when you want modular, predictable, and maintainable code without the overhead of conventional approaches. Start simple and scale as your project demands!
+The `_with`, `make`, and `makeWith` utilities offer a functional, type-safe alternative to traditional JavaScript patterns. They replace the builder pattern's chaining with single-step composition, eliminate `this` and binding hassles, simplify class-based state management with explicitness, and reduce module boilerplate with dynamic function grouping. Use this library when you want modular, predictable, and maintainable code without the overhead of conventional approaches. Start simple and scale as your project demands! 🚀
