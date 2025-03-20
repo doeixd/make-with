@@ -1,0 +1,57 @@
+{
+  "name": "@doeixd/make-with",
+  "version": "0.0.0",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "license": "MIT",
+  "keywords": [
+    "functional programming",
+    "functional utilities",
+    "partial application",
+    "composition",
+    "closure",
+    "make with",
+    "_with",
+    "pridepack"
+  ],
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "pridepack": "2.6.4",
+    "tslib": "^2.8.1",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "scripts": {
+    "release": "standard-version && git push --follow-tags origin main",
+    "prepublishOnly": "pridepack clean && pridepack build",
+    "build": "pridepack build",
+    "type-check": "pridepack check",
+    "clean": "pridepack clean",
+    "watch": "pridepack watch",
+    "start": "pridepack start",
+    "dev": "pridepack dev",
+    "test": "vitest"
+  },
+  "private": false,
+  "description": "Lightweight function application utilities",
+  "repository": {
+    "url": "https://github.com/doeixd/make-with.git",
+    "type": "git"
+  },
+  "homepage": "https://github.com/doeixd/make-with#readme",
+  "bugs": {
+    "url": "https://github.com/doeixd/make-with/issues"
+  },
+  "author": "Patrick Glenn",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "standard-version": "^9.5.0"
+  }
+}
