@@ -198,15 +198,6 @@ api.get('users').then(console.log);
 **Comparison**: `makeWith` avoids `this` and `bind`, creating a clean object with methods in one step. It's less prone to context errors (e.g., losing `this` when passing methods) and supports multiple operations naturally.
 
 
-## Benefits 🎁
-
-- **🔒 Type Safety**: Generics ensure function signatures are preserved.
-- **🛡️ Immutability**: Encourages explicit state management, reducing bugs.
-- **🚫 No `this`**: Eliminates binding issues common in object-oriented JS.
-- **🪶 Lightweight**: Less code than classes or builders, no module files needed.
-- **🧩 Flexible**: Supports varied input styles for different use cases.
-
-
 ## API Docs 📚
 
 This section details the public API of the Functional Utilities Library, including function signatures, parameters, return types, exceptions, and examples. All functions are written in TypeScript with generics for type safety.
