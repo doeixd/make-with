@@ -37,6 +37,7 @@ npm install @doeixd/make-with
 ```
 
 <br />
+
 ## Why Use This Library? 🤔
 
 This library replaces complex, imperative patterns with functional, type-safe utilities. It eliminates boilerplate, reduces bugs from mutable state or `this` context, and provides a modular way to compose functions around shared data.
