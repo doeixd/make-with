@@ -1,207 +1,264 @@
-# 🧰 Make with 
+# 🧰 Make With
 
-This TypeScript library provides three utilities—`_with`, `make`, and `makeWith`—to streamline function composition, state management, and object creation with a functional programming approach. These tools are lightweight alternatives to traditional JavaScript patterns like the builder pattern, `this` with `bind` or `apply`, classes, and modules, offering type safety, immutability, and simplicity.
+[![npm version](https://img.shields.io/npm/v/@doeixd/make-with.svg)](https://www.npmjs.com/package/@doeixd/make-with)
+[![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](https://www.typescriptlang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## ✨ Key Features
+> Functional utilities for elegant function composition and state management in TypeScript
 
-- **🔒 Type Safe** - Full TypeScript support with generics ensuring function signatures are preserved
-- **🛡️ Immutable** - Encourages explicit state management, reducing bugs from mutable state
-- **🚫 No `this`** - Eliminates binding issues common in object-oriented JavaScript
-- **🪶 Lightweight** - Minimal code footprint compared to classes or builders
-- **🧩 Flexible** - Supports multiple input styles for different use cases
+**Make With** provides three powerful utilities — `_with`, `make`, and `makeWith` — that bring functional programming elegance to TypeScript. Create immutable, type-safe function compositions without the complexity of traditional JavaScript patterns.
 
-## Table of Contents
-
-- [Installation](#installation)
-- [Why Use This Library?](#why-use-this-library)
-- [When Is It Useful?](#when-is-it-useful)
-- [How It's an Alternative](#how-its-an-alternative)
-  - [vs. Builder Pattern](#vs-builder-pattern)
-  - [vs. `this` with `bind` or `apply`](#vs-this-with-bind-or-apply)
-  - [vs. Classes](#vs-classes)
-  - [vs. Modules](#vs-modules)
-- [Examples](#examples)
-  - [Math Operations (vs. Modules)](#math-operations-vs-modules)
-  - [String Utilities (vs. Builder Pattern)](#string-utilities-vs-builder-pattern)
-  - [Counter (vs. Classes)](#counter-vs-classes)
-  - [API Client (vs. `this` with `bind`/`apply`)](#api-client-vs-this-with-bindapply)
-- [Benefits](#benefits)
-- [Conclusion](#conclusion)
-
----
-
-## Installation 📦
+## 📦 Installation
 
 ```sh
 npm install @doeixd/make-with
 ```
 
-<br />
-
-## Why Use This Library? 🤔
-
-This library replaces complex, imperative patterns with functional, type-safe utilities. It eliminates boilerplate, reduces bugs from mutable state or `this` context, and provides a modular way to compose functions around shared data.
-<br />
-
-## When Is It Useful? 🎯
-
-- **📊 Shared State**: When multiple functions need to operate on the same value without repeating it.
-- **📐 Type-Safe Composition**: In TypeScript projects needing precise function signatures.
-- **🔍 Lightweight Utilities**: When classes or modules feel over-engineered.
-- **🧊 Immutability**: For predictable, side-effect-free code.
-
-<br />
-
-## How It's an Alternative 🔄
-
-### vs. Builder Pattern 🏗️
-- **Builder Pattern**: Uses a step-by-step object construction with mutable state, often chained (e.g., `.setX().setY().build()`).
-- **Library Alternative**: `make` and `makeWith` create function objects in one step, avoiding mutation and chaining complexity.
-- **Why Better**: Immediate, immutable results with less boilerplate.
-
-### vs. `this` with `bind` or `apply` 🔗
-- **`this` with `bind`/`apply`**: Manually binds a context to functions, often verbose and error-prone due to `this` quirks.
-- **Library Alternative**: `makeWith` and `_with` bind a `subject` implicitly, avoiding `this` entirely.
-- **Why Better**: No context loss, cleaner syntax, and type safety.
-
-### vs. Classes 🏛️
-- **Classes**: Encapsulate state and methods with `this`, risking mutation and binding issues.
-- **Library Alternative**: `makeWith` creates method-like objects with fixed state, `_with` provides stateless operations.
-- **Why Better**: Immutable, no `this`, simpler composition.
-
-### vs. Modules 📦
-- **Modules**: Export static functions or objects, often requiring manual state injection or configuration.
-- **Library Alternative**: `make` bundles functions dynamically, `makeWith` adds state binding.
-- **Why Better**: Less setup, runtime flexibility, no file overhead.
-
-<br />
-
-## Examples 💡
-
-### Math Operations (vs. Modules) 🧮
-
-**Problem**: You want reusable math utilities, traditionally exported from a module.
-
-**Module Approach**:
-```typescript
-// math.ts
-export function add(a: number, b: number): number { return a + b; }
-export function multiply(a: number, b: number): number { return a * b; }
-
-// usage
-import { add, multiply } from './math';
-console.log(add(2, 3)); // 5
+```sh
+yarn add @doeixd/make-with
 ```
 
-**Library Solution**:
+## 🚀 Quick Start
+
 ```typescript
+// Group functions with 'make'
 function add(a: number, b: number): number { return a + b; }
 function multiply(a: number, b: number): number { return a * b; }
-const mathOps = make(add, multiply);
-console.log(mathOps.add(2, 3)); // 5
-```
+const math = make(add, multiply);
 
-**Comparison**: No need for a separate module file or import statements. `make` dynamically creates an object, reducing overhead and keeping code local.
+math.add(2, 3);       // 5
+math.multiply(2, 3);  // 6
 
-
-### String Utilities (vs. Builder Pattern) 📝
-
-**Problem**: Build a string utility set, traditionally with a builder pattern.
-
-**Builder Pattern**:
-```typescript
-class StringBuilder {
-  private ops: Record<string, (s: string, ...args: any[]) => string> = {};
-  addOp(name: string, fn: (s: string, ...args: any[]) => string) {
-    this.ops[name] = fn;
-    return this;
-  }
-  build() { return this.ops; }
-}
-
-const builder = new StringBuilder()
-  .addOp('toUpper', s => s.toUpperCase())
-  .addOp('repeat', (s, n: number) => s.repeat(n));
-const stringOps = builder.build();
-console.log(stringOps.toUpper('hello')); // "HELLO"
-```
-
-**Library Solution**:
-```typescript
-const stringOps = make({
-  toUpper: (s: string) => s.toUpperCase(),
-  repeat: (s: string, n: number) => s.repeat(n)
+// Apply context with 'makeWith'
+const apiClient = makeWith({ baseUrl: 'https://api.example.com' })({
+  get: (cfg, endpoint) => fetch(`${cfg.baseUrl}/${endpoint}`),
+  post: (cfg, endpoint, data) => fetch(`${cfg.baseUrl}/${endpoint}`, {
+    method: 'POST',
+    body: JSON.stringify(data)
+  })
 });
-console.log(stringOps.toUpper('hello')); // "HELLO"
+
+apiClient.get('users');  // Fetches from https://api.example.com/users
 ```
 
-**Comparison**: `make` achieves the same result in one step, no chaining or class needed. It's immutable and simpler, avoiding the builder's verbosity.
+## ✨ Key Features
 
+- **🔒 Type Safe** - Full TypeScript support with precise type inference
+- **🛡️ Immutable** - Explicit state updates eliminate side-effect bugs
+- **🚫 No `this`** - Avoid context issues common in object-oriented JavaScript
+- **🪶 Lightweight** - Minimal footprint with zero dependencies
+- **🧩 Flexible** - Works with named functions, objects, or inline definitions
 
-### Counter (vs. Classes) 🔢
+## 🔍 Why Use Make With?
 
-**Problem**: Create a counter with stateful operations, typically a class.
+This library solves common JavaScript challenges with a functional approach:
 
-**Class Approach**:
+| Pattern | ❌ Traditional Problems | ✅ Make With Benefits |
+|---------|------------------------|----------------------|
+| **Builder Pattern** | Mutable state, verbose chaining | Immediate, immutable results |
+| **`this` binding** | Context loss, `bind`/`apply` complexity | Implicit subject binding, no context issues |
+| **Classes** | `this` quirks, side effects | Explicit state, predictable updates |
+| **Modules** | File overhead, static exports | Dynamic composition, local code |
+
+## 🛠️ Core API
+
+### `_with`
+
+Partially applies a value to functions, returning reusable specialized functions.
+
 ```typescript
-class Counter {
-  constructor(private count: number) {}
-  increment(n: number) { this.count += n; return this.count; }
-  getCount() { return this.count; }
-}
+const state = { value: 5 };
+const [getValue, increment] = _with(state)(
+  (s) => s.value,
+  (s, n: number) => s.value + n
+);
 
-const counter = new Counter(0);
-console.log(counter.increment(5)); // 5
-console.log(counter.getCount());   // 5
+getValue();    // 5
+increment(3);  // 8
 ```
 
-**Library Solution**:
+### `make`
+
+Creates an object from functions or a functions object, preserving names and types.
+
+```typescript
+// From named functions
+function add(a: number, b: number): number { return a + b; }
+function subtract(a: number, b: number): number { return a - b; }
+const math = make(add, subtract);
+
+// From object definition
+const text = make({
+  upper: (s: string) => s.toUpperCase(),
+  lower: (s: string) => s.toLowerCase()
+});
+```
+
+### `makeWith`
+
+Creates methods that implicitly operate on a shared subject.
+
+```typescript
+interface Config { baseUrl: string; }
+const config: Config = { baseUrl: 'https://api.example.com' };
+
+const api = makeWith(config)({
+  get: (cfg, path: string) => fetch(`${cfg.baseUrl}/${path}`),
+  post: (cfg, path: string, data: any) => fetch(`${cfg.baseUrl}/${path}`, {
+    method: 'POST',
+    body: JSON.stringify(data)
+  })
+});
+
+api.get('users');  // No need to pass config every time
+```
+
+## 🎯 Use Cases
+
+### 1. API Clients
+
+Create clean API clients with shared configuration:
+
+```typescript
+const github = makeWith({ token: 'abc123', baseUrl: 'https://api.github.com' })({
+  getUser: (cfg, username) => 
+    fetch(`${cfg.baseUrl}/users/${username}`, {
+      headers: { 'Authorization': `Bearer ${cfg.token}` }
+    }).then(res => res.json()),
+  
+  listRepos: (cfg, username) => 
+    fetch(`${cfg.baseUrl}/users/${username}/repos`, {
+      headers: { 'Authorization': `Bearer ${cfg.token}` }
+    }).then(res => res.json())
+});
+
+// Use without repetition
+const user = await github.getUser('octocat');
+const repos = await github.listRepos('octocat');
+```
+
+### 2. Immutable State Management
+
+Create predictable state updates:
+
 ```typescript
 interface CounterState { count: number; }
-function increment(s: CounterState, n: number): CounterState { return { ...s, count: s.count + n }; }
-function getCount(s: CounterState): number { return s.count; }
+
+const counter = {
+  increment: (state: CounterState, n: number): CounterState => 
+    ({ ...state, count: state.count + n }),
+  
+  decrement: (state: CounterState, n: number): CounterState => 
+    ({ ...state, count: state.count - n })
+};
+
+// Initial state
+let state: CounterState = { count: 0 };
+let ops = makeWith(state)(counter);
+
+// Update state
+state = ops.increment(5);  // { count: 5 }
+ops = makeWith(state)(counter);  // Rebuild with new state
+
+console.log(state.count);  // 5
+```
+
+### 3. Utilities Collection
+
+Group related functions:
+
+```typescript
+const stringUtils = make({
+  capitalize: (s: string) => s.charAt(0).toUpperCase() + s.slice(1),
+  reverse: (s: string) => s.split('').reverse().join(''),
+  truncate: (s: string, n: number) => s.length > n ? s.slice(0, n) + '...' : s
+});
+
+stringUtils.capitalize('hello');  // "Hello"
+stringUtils.truncate('hello world', 5);  // "hello..."
+```
+
+## 🔄 Migration Examples
+
+### From Builder Pattern
+
+```typescript
+// ❌ Before
+class StringBuilder {
+  private value = '';
+  
+  append(str: string) {
+    this.value += str;
+    return this;
+  }
+  
+  prepend(str: string) {
+    this.value = str + this.value;
+    return this;
+  }
+  
+  build() {
+    return this.value;
+  }
+}
+
+const result = new StringBuilder()
+  .append('world')
+  .prepend('hello ')
+  .build();
+
+// ✅ After
+const string = {
+  append: (s: string, add: string) => s + add,
+  prepend: (s: string, add: string) => add + s
+};
+
+let value = '';
+const ops = makeWith(value)(string);
+value = ops.prepend('hello ');
+value = ops.append('world');
+```
+
+### From Classes
+
+```typescript
+// ❌ Before
+class Counter {
+  constructor(private count = 0) {}
+  
+  increment(n = 1) {
+    this.count += n;
+    return this;
+  }
+  
+  getCount() {
+    return this.count;
+  }
+}
+
+const counter = new Counter();
+counter.increment(5);
+console.log(counter.getCount());  // 5
+
+// ✅ After
+interface CounterState { count: number; }
+
+function increment(state: CounterState, n = 1): CounterState {
+  return { ...state, count: state.count + n };
+}
+
+function getCount(state: CounterState): number {
+  return state.count;
+}
 
 let state: CounterState = { count: 0 };
 let counter = makeWith(state)(increment, getCount);
-state = counter.increment(5); // Update state
-counter = makeWith(state)(increment, getCount); // Rebuild with new state
-console.log(counter.getCount()); // 5
+state = counter.increment(5);
+counter = makeWith(state)(increment, getCount);
+console.log(counter.getCount());  // 5
 ```
 
-**Comparison**: `makeWith` avoids `this` and mutation, using explicit state updates. It's more verbose for state changes but safer and more predictable, with no hidden side effects.
-
-
-### API Client (vs. `this` with `bind`/`apply`) 🌐
-
-**Problem**: Build an API client with shared config, traditionally using `bind`.
-
-**`bind` Approach**:
-```typescript
-interface ApiConfig { baseUrl: string; }
-const config: ApiConfig = { baseUrl: 'https://api.example.com' };
-
-function get(this: ApiConfig, endpoint: string) { return fetch(`${this.baseUrl}/${endpoint}`).then(res => res.json()); }
-const boundGet = get.bind(config);
-boundGet('users').then(console.log);
-```
-
-**Library Solution**:
-```typescript
-interface ApiConfig { baseUrl: string; }
-const config: ApiConfig = { baseUrl: 'https://api.example.com' };
-const api = makeWith(config)({
-  get: (cfg: ApiConfig, endpoint: string) => fetch(`${cfg.baseUrl}/${endpoint}`).then(res => res.json()),
-  post: (cfg: ApiConfig, endpoint: string, data: any) => fetch(`${cfg.baseUrl}/${endpoint}`, { method: 'POST', body: JSON.stringify(data) }).then(res => res.json())
-});
-api.get('users').then(console.log);
-```
-
-**Comparison**: `makeWith` avoids `this` and `bind`, creating a clean object with methods in one step. It's less prone to context errors (e.g., losing `this` when passing methods) and supports multiple operations naturally.
-
-
-## API Docs 📚
-
-This section details the public API of the Functional Utilities Library, including function signatures, parameters, return types, exceptions, and examples. All functions are written in TypeScript with generics for type safety.
+## 📚 Full API Documentation
 
 ### `_with` 🔗
 
@@ -339,6 +396,11 @@ const ops = makeWith({ value: 5 })(add);
 console.log(ops.add(3)); // 8, typed as (...args: any[]) => any
 ```
 
-## Conclusion 🎯
 
-The `_with`, `make`, and `makeWith` utilities offer a functional, type-safe alternative to traditional JavaScript patterns. They replace the builder pattern's chaining with single-step composition, eliminate `this` and binding hassles, simplify class-based state management with explicitness, and reduce module boilerplate with dynamic function grouping. Use this library when you want modular, predictable, and maintainable code without the overhead of conventional approaches. Start simple and scale as your project demands! 🚀
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
