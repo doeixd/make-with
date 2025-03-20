@@ -36,18 +36,18 @@ This TypeScript library provides three utilities—`_with`, `make`, and `makeWit
 npm install @doeixd/make-with
 ```
 
-
+<br />
 ## Why Use This Library? 🤔
 
 This library replaces complex, imperative patterns with functional, type-safe utilities. It eliminates boilerplate, reduces bugs from mutable state or `this` context, and provides a modular way to compose functions around shared data.
-
+<br />
 ## When Is It Useful? 🎯
 
 - **📊 Shared State**: When multiple functions need to operate on the same value without repeating it.
 - **📐 Type-Safe Composition**: In TypeScript projects needing precise function signatures.
 - **🔍 Lightweight Utilities**: When classes or modules feel over-engineered.
 - **🧊 Immutability**: For predictable, side-effect-free code.
-
+<br />
 ## How It's an Alternative 🔄
 
 ### vs. Builder Pattern 🏗️
@@ -69,7 +69,7 @@ This library replaces complex, imperative patterns with functional, type-safe ut
 - **Modules**: Export static functions or objects, often requiring manual state injection or configuration.
 - **Library Alternative**: `make` bundles functions dynamically, `makeWith` adds state binding.
 - **Why Better**: Less setup, runtime flexibility, no file overhead.
-
+<br />
 ## Examples 💡
 
 ### Math Operations (vs. Modules) 🧮
