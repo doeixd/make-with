@@ -4,7 +4,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Make With** is a small, zero-dependency library for building stateful objects and function-composition patterns in a clean, functional, and immutable way. It helps you write predictable, testable code by avoiding the complexities of `this`, classes, and manual state binding.
+**Make With** is a small, zero-dependency library for building stateful objects and function-composition patterns in a clean, functional, and simple way. It helps you write predictable, testable code by avoiding the complexities of `this`, classes, and manual state binding.
 
 <br />
 
