@@ -1,4 +1,4 @@
-# 🧰 Make With
+#  🧰 Make With
 
 [![npm version](https://img.shields.io/npm/v/@doeixd/make-with.svg)](https://www.npmjs.com/package/@doeixd/make-with)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](https://www.typescriptlang.org/)
@@ -14,7 +14,7 @@ This library is built on a few simple but powerful concepts:
 
 *   **Explicit Over Implicit:** Dependencies (state, config) are always passed as an explicit argument (`subject` or `self`), completely eliminating the confusion of the `this` keyword.
 *   **Functions as Building Blocks:** Your logic lives in plain, pure functions. The library provides tools to compose these functions into cohesive, testable APIs without the ceremony of classes.
-*   **Immutability by Default:** State-changing operations produce a *new* API instance with the *new* state, leaving the original untouched. This leads to predictable data flow and prevents a whole category of bugs.
+*   **Immutability by Default:** State-changing operations should produce a *new* API instance with the *new* state, leaving the original untouched. This leads to predictable data flow and prevents a whole category of bugs. However mutable patterns remain possible and well supported as well. 
 
 <br />
 
@@ -53,7 +53,7 @@ getUser('alice');
 
 #### Step 2: The Need for Names (`collectFns`)
 
-To build a proper API object, we need named methods like `api.getUser()`. The `collectFns` (`make`) primitive helps by turning loose functions into a named map.
+To build a proper API object, we need named methods like `api.getUser()`. The `collectFns` (alias: `make`) primitive helps by turning loose functions into a named map.
 
 ```typescript
 import { collectFns } from '@doeixd/make-with';
@@ -64,7 +64,7 @@ const myFns = collectFns(myCoolFunction); // -> { myCoolFunction: [Function: myC
 
 #### Step 3: The Core Utility (`provideTo`)
 
-Now, let's combine these ideas. `provideTo` (`makeWith`) is the core utility that directly binds a context to a map of named functions, giving us the clean API we wanted from the start.
+Now, let's combine these ideas. `provideTo` (alias: `makeWith`) is the core utility that directly binds a context to a map of named functions, giving us the clean API we wanted from the start.
 
 ```typescript
 import { provideTo } from '@doeixd/make-with';
@@ -145,7 +145,7 @@ const withLogging = {
 const client = makeLayered({ baseUrl: "..." })
   ({ get: (s, path) => fetch(`${s.baseUrl}/${path}`).then(res => res.json()) }) // Core logic
   (withLogging) // Add logging on top
-  ();
+  (); // Finalize and build the API
 
 // The final `client.get()` is the enhanced, logged version.
 ```
@@ -179,11 +179,13 @@ const guestApi = createAuthApi({ name: 'Guest', isAdmin: false });
 
 <br />
 
-## 🎩 Advanced Usage: The `makeLayered` Builder
+## 🎩 Advanced Usage
+
+### The `makeLayered` Builder
 
 For the most complex scenarios, `makeLayered` gives you ultimate control. It builds an API in distinct, "self-aware" layers.
 
-### Pattern 1: Orchestration (Methods Calling Methods)
+#### Pattern 1: Orchestration (Methods Calling Methods)
 
 The `double` method here orchestrates calls to `get` and `add` from previous layers, using `self` to refer to the API instance being built.
 
@@ -194,32 +196,24 @@ const counter = makeLayered({ count: 3 })
   (makeChainable({ add: (s, amount) => ({ ...s, count: s.count + amount }) })) // Base Layer
   ({ get: (s) => s.count }) // Getter Layer
   ({ double: (self) => self.add(self.get()) }) // Enhancer Layer: `self` is the API!
-  (); // Finalizer call
+  (); // Finalizer call to build the object
 
 const finalCounter = counter.double(); // finalCounter.get() is 6
 ```
 
-### Pattern 2: Direct Mutation API (When You Want It)
+#### Pattern 2: Direct Mutation API (When You Want It)
 
-While immutability is the default, `makeLayered` also supports direct mutation patterns that many developers find intuitive and performant. This isn't a compromise - it's a deliberate design choice for scenarios where mutation makes sense.
+While immutability is the default, `makeLayered` also supports direct mutation patterns. This is a deliberate design choice for scenarios where mutable state is more intuitive or performant.
 
 ```typescript
-// Simple mutable state with provide
-const state = { count: 0 };
-const [getState, setState] = provide(state)(
-  (state) => state.count,
-  (state, value) => { state.count = value; }
-);
-
-// Or build a richer mutable API with makeLayered
 const mutableCounter = makeLayered({ count: 0 })
   ({
-    getSubject: (s) => s,
+    getSubject: (s) => s, // A helper to get the raw state object
     get: (s) => s.count,
   })
   ({
     increment: (self) => {
-      self.getSubject().count++;
+      self.getSubject().count++; // Mutate the state directly
       return self; // Return self for chaining
     },
     add: (self, amount) => {
@@ -232,12 +226,24 @@ const mutableCounter = makeLayered({ count: 0 })
 mutableCounter.increment().add(5);
 console.log(mutableCounter.get()); // 6
 ```
+This pattern shines when managing local component state, optimizing performance-critical code, or integrating with systems that expect mutation.
 
-This pattern shines when:
-- You're managing local component state
-- Performance is critical
-- You prefer a more traditional, stateful API
-- You're integrating with systems that expect mutation
+#### Pattern 3: Composing Dependent Factories with `enrich`
+
+Sometimes, you need to create an object where one part depends on another (e.g., generating an ID first, then using it to assign permissions). The `enrich` utility composes two factory functions, merging their results.
+
+```typescript
+import { enrich } from '@doeixd/make-with';
+
+const createUser = (name: string) => ({ name, id: Math.random() });
+const addPermissions = (user: { id: number }) => ({
+  permissions: user.id > 0.5 ? ['admin'] : ['guest']
+});
+
+const createFullUser = enrich(createUser, addPermissions);
+const user = createFullUser('Alice');
+// user is { name: 'Alice', id: 0.78, permissions: ['admin'] }
+```
 
 <br />
 
@@ -254,14 +260,7 @@ While flexible, `Make With` excels in these areas:
 
 ## 📚 More Examples
 
-For a comprehensive collection of examples demonstrating every feature of the library, check out the **[examples.ts](./examples.ts)** file in the root of this project.
-
-The examples file includes:
-- Step-by-step progression from simple to advanced usage
-- Real-world patterns like API clients and state machines  
-- Custom helper functions and middleware patterns
-- Performance optimization techniques
-- Complete application examples
+For a comprehensive collection of examples demonstrating every feature of the library, check out the **[examples.ts](./examples.ts)** file in the root of this project. It includes real-world patterns, custom helpers, and performance optimization techniques.
 
 <br />
 
@@ -271,188 +270,99 @@ The examples file includes:
 
 | Function | Alias | Description |
 |---|---|---|
-| `_with` | `provide` | **(Primitive)** Partially applies a subject to an array of functions. |
-| `make` | `collectFns` | **(Primitive)** Normalizes loose functions into a key-value object. |
-| `makeWith`|`provideTo` | **(Core)** Binds a subject to functions to create a basic API. |
-| `rebind` |`makeChainable`| **(Core)** Marks methods for immutable, chainable behavior. |
+| `provide` | `_with` | **(Primitive)** Partially applies a subject to an array of functions. |
+| `collectFns`| `make` | **(Primitive)** Normalizes loose functions into a key-value object. |
+| `provideTo`|`makeWith` | **(Core)** Binds a subject to functions to create a basic API. |
+| `makeChainable`| `rebind`| **(Core)** Marks methods for immutable, chainable behavior. |
 | `makeLayered`| - | **(Advanced)** Creates a multi-layered, self-aware API using a fluent interface. |
 | `enrich` | - | **(Advanced)** Composes two dependent factory functions and merges their results. |
 
-### Core Primitives
+### API Reference
 
-#### `_with` / `provide`
+#### `provide` (alias: `_with`)
 ```typescript
-function _with<S>(subject: S): <Fs extends ((subject: S, ...args: any[]) => any)[]>(
+function provide<S>(subject: S): <Fs extends ((subject: S, ...args: any[]) => any)[]>(
   ...fns: Fs
-) => {
-  [K in keyof Fs]: Fs[K] extends (subject: S, ...args: infer A) => infer R
-    ? (...args: A) => R
-    : never;
-}
+) => { /* ... bound functions ... */ }
 ```
 **(Primitive)** Partially applies a subject to an array of functions, returning new functions with the subject pre-applied.
 
 **Example:**
 ```typescript
-const [getUser, getRepos] = provide({ token: 'abc' })(
-  (cfg, username: string) => `Fetching ${username}...`,
-  (cfg, username: string) => `Getting repos for ${username}...`
+const [getUser] = provide({ token: 'abc' })(
+  (cfg, username: string) => `Fetching ${username}...`
 );
 ```
 
-#### `make` / `collectFns`
+#### `collectFns` (alias: `make`)
 ```typescript
-// Overload 1: Array of named functions
-function make<F extends (...args: any[]) => any>(
-  ...fns: F[]
-): Record<string, F>;
-
-// Overload 2: Object of functions
-function make<Obj extends Methods>(obj: Obj): Obj;
-
-// Where Methods is:
-type Methods<S = any> = Record<string, (subject: S, ...args: any[]) => any>;
+function collectFns<F extends (...args: any[]) => any>(...fns: F[]): Record<string, F>;
+function collectFns<Obj extends Methods>(obj: Obj): Obj;
 ```
-**(Primitive)** Normalizes loose functions into a key-value object. Accepts either named functions or an object.
+**(Primitive)** Normalizes loose functions into a key-value object, using the function's `name` property as the key.
 
 **Example:**
 ```typescript
-// From named functions
-function greet(name: string) { return `Hello, ${name}`; }
-const api1 = make(greet); // { greet: Function }
-
-// From object
-const api2 = make({
-  greet: (name: string) => `Hello, ${name}`
-}); // { greet: Function }
+function greet(name: string) { /* ... */ }
+const api = collectFns(greet); // { greet: [Function: greet] }
 ```
 
-### Core Utilities
-
-#### `makeWith` / `provideTo`
+#### `provideTo` (alias: `makeWith`)
 ```typescript
-function makeWith<S extends object>(subject: S): <Fns extends Methods<S>>(
+function provideTo<S extends object>(subject: S): <Fns extends Methods<S>>(
   functionsMap: Fns
 ) => ChainableApi<Fns, S>;
-
-// Where ChainableApi intelligently types chainable vs regular methods:
-type ChainableApi<Fns extends Methods<S>, S> = {
-  [K in keyof Omit<Fns, typeof IS_CHAINABLE>]:
-    Fns[K] extends (s: S, ...args: infer A) => S
-      ? (...args: A) => ChainableApi<Fns, S>  // Chainable methods return new API
-      : Fns[K] extends (s: S, ...args: infer A) => infer R
-        ? (...args: A) => R  // Regular methods return their value
-        : never;
-};
 ```
-**(Core)** Creates an API by binding a subject to functions. Works with both regular and chainable methods.
+**(Core)** Creates an API by binding a subject to a map of functions. It intelligently handles both regular and `makeChainable` methods.
 
 **Example:**
 ```typescript
 const api = provideTo({ count: 0 })({
-  increment: (s) => ({ count: s.count + 1 }), // Regular method
   get: (s) => s.count
 });
 ```
 
-#### `rebind` / `makeChainable`
+#### `makeChainable` (alias: `rebind`)
 ```typescript
-// Overload 1: Object of functions
-function rebind<Obj extends Methods>(obj: Obj): Obj;
-
-// Overload 2: Array of functions
-function rebind<Fs extends Array<(...args: any[]) => any>>(
-  ...fns: Fs
-): Record<string, Fs[number]>;
+function makeChainable<Obj extends Methods>(obj: Obj): Obj;
 ```
-**(Core)** Marks methods for immutable, chainable behavior. When used with `provideTo`, these methods return a new API instance.
+**(Core)** Marks methods for immutable, chainable behavior. When used with `provideTo`, these methods return a new API instance with the updated state.
 
 **Example:**
 ```typescript
 const counter = provideTo({ count: 0 })({
   ...makeChainable({
     increment: (s) => ({ count: s.count + 1 }),
-    add: (s, amount: number) => ({ count: s.count + amount })
   }),
-  get: (s) => s.count
 });
-
-const newCounter = counter.increment().add(5); // Chainable!
+const newCounter = counter.increment(); // Chainable!
 ```
-
-### Advanced Utilities
 
 #### `makeLayered`
 ```typescript
-function makeLayered<S extends object>(subject: S): <BaseFns extends Methods<S>>(
-  baseFns: BaseFns
-) => LayeredApiBuilder<ChainableApi<BaseFns, S>>;
-
-// Where LayeredApiBuilder allows chaining enhancement layers:
-type LayeredApiBuilder<CurrentApi extends object> = {
-  (): CurrentApi;  // Terminate and get final API
-  <EnhancerFns extends Methods<CurrentApi>>(
-    enhancerFns: EnhancerFns
-  ): LayeredApiBuilder<CurrentApi & BoundApi<CurrentApi, EnhancerFns>>;
-};
+function makeLayered<S extends object>(subject: S): LayeredApiBuilder<...>
 ```
-**(Advanced)** Creates a multi-layered, self-aware API. Each layer receives the previous API as context.
+**(Advanced)** Creates a multi-layered, self-aware API. Each layer receives the API constructed from previous layers as its context (`self`).
 
 **Example:**
 ```typescript
 const api = makeLayered({ value: 10 })
-  // Base layer (can be chainable)
-  (makeChainable({
-    add: (s, n: number) => ({ value: s.value + n })
-  }))
-  // Enhancement layer (receives 'self' = previous layers)
-  ({
-    double: (self) => self.add(self.value)
-  })
-  (); // Terminate and build
+  (makeChainable({ add: (s, n) => ({ value: s.value + n }) }))
+  ({ double: (self) => self.add(self.value) })
+  ();
 ```
 
 #### `enrich`
 ```typescript
-function enrich<
-  P extends (...args: any[]) => object,
-  S extends (primaryResult: ReturnType<P>) => object
->(
-  primaryFactory: P,
-  secondaryFactory: S
-): (...args: Parameters<P>) => ReturnType<P> & ReturnType<S>;
+function enrich<P, S>(primaryFactory: P, secondaryFactory: S): FusedFunction
 ```
-**(Advanced)** Composes two factory functions where the second depends on the first, merging their results.
+**(Advanced)** Composes two factory functions where the second depends on the first, merging their results into a single object.
 
 **Example:**
 ```typescript
-const createUser = (name: string) => ({ name, id: Math.random() });
-const addPermissions = (user: { id: number }) => ({
-  permissions: user.id > 0.5 ? ['admin'] : ['user']
-});
-
-const createFullUser = enrich(createUser, addPermissions);
-const user = createFullUser('Alice');
-// { name: 'Alice', id: 0.7, permissions: ['admin'] }
-```
-
-### Type Utilities
-
-The library exports several utility types that may be useful:
-
-```typescript
-// A collection of methods that accept a subject as first parameter
-type Methods<S = any> = Record<string, (subject: S, ...args: any[]) => any>;
-
-// The resulting API type from makeWith/provideTo
-type ChainableApi<Fns extends Methods<S>, S> = { /* ... */ };
-
-// The resulting API type for non-chainable methods in makeLayered
-type BoundApi<S, F extends Methods<S>> = {
-  [K in keyof F]: F[K] extends (subject: S, ...args: infer A) => infer R
-    ? (...args: A) => R
-    : never;
-};
+const createUser = (name: string) => ({ name, id: 1 });
+const addStatus = (user: { id: number }) => ({ status: 'active' });
+const createFullUser = enrich(createUser, addStatus);
 ```
 <br />
 
@@ -462,7 +372,7 @@ type BoundApi<S, F extends Methods<S>> = {
 **A:** No. `Make With` is designed for creating self-contained, encapsulated objects. It's perfect for local component state or module-level state, but it has no built-in concept of a global, application-wide store.
 
 **Q: What about performance? Isn't creating new objects on every call slow?**
-**A:** For the vast majority of use cases (UI state, SDKs), the performance impact is negligible. JavaScript engines are highly optimized for short-lived object creation. For hot paths, you can use the mutable pattern shown in the advanced examples.
+**A:** For the vast majority of use cases (UI state, SDKs), the performance impact is negligible. JavaScript engines are highly optimized for short-lived object creation. For performance-critical hot paths, you can use the mutable pattern shown in the advanced examples.
 
 **Q: Why the empty `()` call at the end of `makeLayered`?**
 **A:** This is the "terminator call." Because `makeLayered` allows a variable number of enhancement layers, it needs a clear signal that you are finished adding layers and want the final object to be constructed. The empty `()` provides an explicit and unambiguous way to finalize the process.
