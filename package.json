@@ -17,14 +17,40 @@
     "closure",
     "make with",
     "_with",
-    "pridepack"
+    "pridepack",
+    "functional",
+    "composition",
+    "state-management",
+    "immutable",
+    "chainable",
+    "fluent-api",
+    "builder-pattern",
+    "typescript",
+    "zero-dependency",
+    "functional-programming",
+    "composable",
+    "api-builder",
+    "state",
+    "method-chaining",
+    "factory-pattern",
+    "partial-application",
+    "sdk-builder",
+    "modular",
+    "no-classes",
+    "pure-functions",
+    "extensible",
+    "lightweight",
+    "builder",
+    "fluent",
+    "compose"
   ],
   "devDependencies": {
     "@types/node": "^22.10.2",
     "pridepack": "2.6.4",
     "tslib": "^2.8.1",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "standard-version": "^9.5.0"
   },
   "scripts": {
     "release": "standard-version && git push --follow-tags origin main",
@@ -50,8 +76,5 @@
   "author": "Patrick Glenn",
   "publishConfig": {
     "access": "public"
-  },
-  "dependencies": {
-    "standard-version": "^9.5.0"
   }
 }
