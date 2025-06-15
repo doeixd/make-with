@@ -252,6 +252,19 @@ While flexible, `Make With` excels in these areas:
 
 <br />
 
+## 📚 More Examples
+
+For a comprehensive collection of examples demonstrating every feature of the library, check out the **[examples.ts](./examples.ts)** file in the root of this project.
+
+The examples file includes:
+- Step-by-step progression from simple to advanced usage
+- Real-world patterns like API clients and state machines  
+- Custom helper functions and middleware patterns
+- Performance optimization techniques
+- Complete application examples
+
+<br />
+
 ## 🛠️ The Full Toolkit
 
 ### Breakdown
