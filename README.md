@@ -104,7 +104,7 @@ console.log(counter.get()); // 0 (The original is untouched)
 
 ## 🧠 The Philosophy: Composition Over Confinement
 
-`Make With` isn't just a different syntax; it's a different way of thinking about building software. Your logic should be composed of simple, portable functions, not confined within rigid structures.
+`Make With` is designed around the idea that your logic should be composed of simple, portable functions, not confined within rigid structures.
 
 ### 1. Building with Functions, Not Rigid Classes
 
