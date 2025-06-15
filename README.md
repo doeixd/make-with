@@ -4,9 +4,19 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> Functional utilities for elegant function composition and state management in TypeScript
+**Make With** is a small, zero-dependency library for building stateful objects and function-composition patterns in a clean, functional, and immutable way. It helps you write predictable, testable code by avoiding the complexities of `this`, classes, and manual state binding.
 
-**Make With** provides three powerful utilities — `_with`, `make`, and `makeWith` — that bring functional programming elegance to TypeScript. Create immutable, type-safe function compositions without the complexity of traditional JavaScript patterns.
+<br />
+
+## ✨ Guiding Principles
+
+This library is built on a few simple but powerful concepts:
+
+*   **Explicit Over Implicit:** Dependencies (state, config) are always passed as an explicit argument (`subject` or `self`), completely eliminating the confusion of the `this` keyword.
+*   **Functions as Building Blocks:** Your logic lives in plain, pure functions. The library provides tools to compose these functions into cohesive, testable APIs without the ceremony of classes.
+*   **Immutability by Default:** State-changing operations produce a *new* API instance with the *new* state, leaving the original untouched. This leads to predictable data flow and prevents a whole category of bugs.
+
+<br />
 
 ## 📦 Installation
 
@@ -14,393 +24,444 @@
 npm install @doeixd/make-with
 ```
 
-```sh
-yarn add @doeixd/make-with
-```
+<br />
 
-## 🚀 Quick Start
+## 🚀 Quick Start: From Primitives to a Powerful API
 
-```typescript
-// Group functions with 'make'
-function add(a: number, b: number): number { return a + b; }
-function multiply(a: number, b: number): number { return a * b; }
-const math = make(add, multiply);
+This library provides composable primitives that build on each other. This journey shows how they work together to create a full-featured API.
 
-math.add(2, 3);       // 5
-math.multiply(2, 3);  // 6
+#### Step 1: The Problem & The Simplest Primitive (`provide`)
 
-// Apply context with 'makeWith'
-const apiClient = makeWith({ baseUrl: 'https://api.example.com' })({
-  get: (cfg, endpoint) => fetch(`${cfg.baseUrl}/${endpoint}`),
-  post: (cfg, endpoint, data) => fetch(`${cfg.baseUrl}/${endpoint}`, {
-    method: 'POST',
-    body: JSON.stringify(data)
-  })
-});
-
-apiClient.get('users');  // Fetches from https://api.example.com/users
-```
-
-## ✨ Key Features
-
-- **🔒 Type Safe** - Full TypeScript support with precise type inference
-- **🛡️ Immutable** - Explicit state updates eliminate side-effect bugs
-- **🚫 No `this`** - Avoid context issues common in object-oriented JavaScript
-- **🪶 Lightweight** - Minimal footprint with zero dependencies
-- **🧩 Flexible** - Works with named functions, objects, or inline definitions
-
-## 🔍 Why Use Make With?
-
-This library solves common JavaScript challenges with a functional approach:
-
-| Pattern | ❌ Traditional Problems | ✅ Make With Benefits |
-|---------|------------------------|----------------------|
-| **Builder Pattern** | Mutable state, verbose chaining | Immediate, immutable results |
-| **`this` binding** | Context loss, `bind`/`apply` complexity | Implicit subject binding, no context issues |
-| **Classes** | `this` quirks, side effects | Explicit state, predictable updates |
-| **Modules** | File overhead, static exports | Dynamic composition, local code |
-
-## 🛠️ Core API
-
-### `_with`
-
-Partially applies a value to functions, returning reusable specialized functions.
+Imagine you have functions that all need the same config. Passing it every time is repetitive. The `provide` primitive solves this by "baking in" the context.
 
 ```typescript
-const state = { value: 5 };
-const [getValue, increment] = _with(state)(
-  (s) => s.value,
-  (s, n: number) => s.value + n
+import { provide } from '@doeixd/make-with';
+
+const config = { token: 'abc', baseUrl: '...' };
+
+// `provide` takes a context and returns a function that takes your functions
+const [getUser, getRepos] = provide(config)(
+  (cfg, username) => `Getting user ${username} with token ${cfg.token}`,
+  (cfg, username) => `Getting repos for ${username} with token ${cfg.token}`
 );
 
-getValue();    // 5
-increment(3);  // 8
+// Now the calls are much cleaner.
+getUser('alice');
+
+// But you get back a simple array, which isn't a great API.
 ```
 
-### `make`
+#### Step 2: The Need for Names (`collectFns`)
 
-Creates an object from functions or a functions object, preserving names and types.
+To build a proper API object, we need named methods like `api.getUser()`. The `collectFns` (`make`) primitive helps by turning loose functions into a named map.
 
+```typescript
+import { collectFns } from '@doeixd/make-with';
+
+function myCoolFunction() {}
+const myFns = collectFns(myCoolFunction); // -> { myCoolFunction: [Function: myCoolFunction] }
+```
+
+#### Step 3: The Core Utility (`provideTo`)
+
+Now, let's combine these ideas. `provideTo` (`makeWith`) is the core utility that directly binds a context to a map of named functions, giving us the clean API we wanted from the start.
+
+```typescript
+import { provideTo } from '@doeixd/make-with';
+
+const config = { token: 'abc', baseUrl: '...' };
+const apiClient = provideTo(config)({
+  getUser: (cfg, username) => { /* ... */ },
+  getRepos: (cfg, username) => { /* ... */ },
+});
+
+// The result is a clean, organized, and easy-to-use object.
+apiClient.getUser('alice');
+```
+
+#### Step 4: Managing Changing State (`makeChainable`)
+
+This is great for static configs, but what about dynamic state? `makeChainable` marks methods as state updaters. When called, they return a **whole new API** bound to the new state.
+
+```typescript
+import { provideTo, makeChainable } from '@doeixd/make-with';
+
+const counter = provideTo({ count: 0 })({
+  ...makeChainable({
+    increment: (s) => ({ count: s.count + 1 }),
+    add: (s, amount) => ({ count: s.count + amount }),
+  }),
+  get: (s) => s.count,
+});
+
+// Now, it's fully chainable and immutable.
+const finalCounter = counter.increment().add(5);
+console.log(finalCounter.get()); // 6
+console.log(counter.get()); // 0 (The original is untouched)
+```
+
+<br />
+
+## 🧠 The Philosophy: Composition Over Confinement
+
+`Make With` isn't just a different syntax; it's a different way of thinking about building software. Your logic should be composed of simple, portable functions, not confined within rigid structures.
+
+### 1. Building with Functions, Not Rigid Classes
+
+In OOP, logic is tied to class instances via `this`, making methods difficult to move or reuse. With `Make With`, your logic lives in pure functions that are completely portable.
+
+**The `Make With` Freedom:**
+```typescript
+// This function can live anywhere. It has no dependency on a class.
+// It's just a pure function: (state, input) => newState
+const add = (state, amount) => ({ ...state, value: state.value + amount });
+
+// Now, we can easily "provide" it to a state object.
+const calculator = provideTo({ value: 10 })({
+  ...makeChainable({ add }),
+});
+
+const newCalculator = calculator.add(5); // { value: 15 }
+```
+> **The Takeaway:** Your business logic becomes a library of composable, independently testable functions, not a collection of methods trapped inside a class.
+
+### 2. Stackable Behaviors, Not Brittle Inheritance
+
+Classes use inheritance to share code, which creates tight coupling. `Make With` uses layers of composition, which is far more flexible. Imagine adding logging to an API client.
+
+**The `makeLayered` Composition Approach:**
+```typescript
+// A generic logging enhancer. It doesn't care what it's wrapping.
+const withLogging = {
+  get: async (self, path) => { // `self` is the API from the previous layers
+    console.log(`[LOG] Requesting: ${path}`);
+    const result = await self.get(path); // Calls the original `get` method
+    console.log(`[LOG] Success!`);
+    return result;
+  },
+};
+
+// Now, compose the final client by stacking layers:
+const client = makeLayered({ baseUrl: "..." })
+  ({ get: (s, path) => fetch(`${s.baseUrl}/${path}`).then(res => res.json()) }) // Core logic
+  (withLogging) // Add logging on top
+  ();
+
+// The final `client.get()` is the enhanced, logged version.
+```
+> **The Takeaway:** You can build complex objects by stacking independent behaviors, avoiding the rigid hierarchies and tight coupling of inheritance.
+
+### 3. Type Safety with TypeScript
+
+Because the final API is constructed step-by-step, TypeScript can precisely track its shape at every stage. This is especially powerful when building dynamic APIs.
+
+```typescript
+const createAuthApi = (user) => {
+  const builder = makeLayered({ user })
+    (makeChainable({ /* ... base methods ... */ }))
+    ({ getUser: (s) => s.user });
+
+  // Conditionally add the admin layer
+  if (user.isAdmin) {
+    builder({ banUser: (self, username) => console.log(/* ... */) });
+  }
+
+  return builder(); // The final API type is inferred correctly!
+};
+
+const adminApi = createAuthApi({ name: 'Alice', isAdmin: true });
+adminApi.banUser('Bob'); // ✅ Compiles perfectly.
+
+const guestApi = createAuthApi({ name: 'Guest', isAdmin: false });
+// guestApi.banUser('Bob'); // 💥 TypeScript Error! Property 'banUser' does not exist.
+```
+> **The Takeaway:** You get dynamic, compositional power without sacrificing static type safety.
+
+<br />
+
+## 🎩 Advanced Usage: The `makeLayered` Builder
+
+For the most complex scenarios, `makeLayered` gives you ultimate control. It builds an API in distinct, "self-aware" layers.
+
+### Pattern 1: Orchestration (Methods Calling Methods)
+
+The `double` method here orchestrates calls to `get` and `add` from previous layers, using `self` to refer to the API instance being built.
+
+```typescript
+import { makeLayered, makeChainable } from '@doeixd/make-with';
+
+const counter = makeLayered({ count: 3 })
+  (makeChainable({ add: (s, amount) => ({ ...s, count: s.count + amount }) })) // Base Layer
+  ({ get: (s) => s.count }) // Getter Layer
+  ({ double: (self) => self.add(self.get()) }) // Enhancer Layer: `self` is the API!
+  (); // Finalizer call
+
+const finalCounter = counter.double(); // finalCounter.get() is 6
+```
+
+### Pattern 2: Direct Mutation API (When You Want It)
+
+While immutability is the default, `makeLayered` also supports direct mutation patterns that many developers find intuitive and performant. This isn't a compromise - it's a deliberate design choice for scenarios where mutation makes sense.
+
+```typescript
+// Simple mutable state with provide
+const state = { count: 0 };
+const [getState, setState] = provide(state)(
+  (state) => state.count,
+  (state, value) => { state.count = value; }
+);
+
+// Or build a richer mutable API with makeLayered
+const mutableCounter = makeLayered({ count: 0 })
+  ({
+    getSubject: (s) => s,
+    get: (s) => s.count,
+  })
+  ({
+    increment: (self) => {
+      self.getSubject().count++;
+      return self; // Return self for chaining
+    },
+    add: (self, amount) => {
+      self.getSubject().count += amount;
+      return self;
+    },
+  })();
+
+// Direct, efficient, and chainable
+mutableCounter.increment().add(5);
+console.log(mutableCounter.get()); // 6
+```
+
+This pattern shines when:
+- You're managing local component state
+- Performance is critical
+- You prefer a more traditional, stateful API
+- You're integrating with systems that expect mutation
+
+<br />
+
+## 🎯 Ideal Use Cases
+
+While flexible, `Make With` excels in these areas:
+
+*   **Building SDKs or API Clients:** Create clean, configured clients where a base config is injected into a set of request functions.
+*   **Managing Complex UI Component State:** Handle intricate local state for a component (e.g., a multi-step form) in a predictable way.
+*   **Implementing the Builder Pattern:** Construct complex objects step-by-step in a fluent manner, with support for both immutable and mutable styles.
+*   **Creating Self-Contained Modules:** Encapsulate logic and state for a specific domain, like a "shopping cart" or "user session" module.
+
+<br />
+
+## 🛠️ The Full Toolkit
+
+### Breakdown
+
+| Function | Alias | Description |
+|---|---|---|
+| `_with` | `provide` | **(Primitive)** Partially applies a subject to an array of functions. |
+| `make` | `collectFns` | **(Primitive)** Normalizes loose functions into a key-value object. |
+| `makeWith`|`provideTo` | **(Core)** Binds a subject to functions to create a basic API. |
+| `rebind` |`makeChainable`| **(Core)** Marks methods for immutable, chainable behavior. |
+| `makeLayered`| - | **(Advanced)** Creates a multi-layered, self-aware API using a fluent interface. |
+| `enrich` | - | **(Advanced)** Composes two dependent factory functions and merges their results. |
+
+### Core Primitives
+
+#### `_with` / `provide`
+```typescript
+function _with<S>(subject: S): <Fs extends ((subject: S, ...args: any[]) => any)[]>(
+  ...fns: Fs
+) => {
+  [K in keyof Fs]: Fs[K] extends (subject: S, ...args: infer A) => infer R
+    ? (...args: A) => R
+    : never;
+}
+```
+**(Primitive)** Partially applies a subject to an array of functions, returning new functions with the subject pre-applied.
+
+**Example:**
+```typescript
+const [getUser, getRepos] = provide({ token: 'abc' })(
+  (cfg, username: string) => `Fetching ${username}...`,
+  (cfg, username: string) => `Getting repos for ${username}...`
+);
+```
+
+#### `make` / `collectFns`
+```typescript
+// Overload 1: Array of named functions
+function make<F extends (...args: any[]) => any>(
+  ...fns: F[]
+): Record<string, F>;
+
+// Overload 2: Object of functions
+function make<Obj extends Methods>(obj: Obj): Obj;
+
+// Where Methods is:
+type Methods<S = any> = Record<string, (subject: S, ...args: any[]) => any>;
+```
+**(Primitive)** Normalizes loose functions into a key-value object. Accepts either named functions or an object.
+
+**Example:**
 ```typescript
 // From named functions
-function add(a: number, b: number): number { return a + b; }
-function subtract(a: number, b: number): number { return a - b; }
-const math = make(add, subtract);
+function greet(name: string) { return `Hello, ${name}`; }
+const api1 = make(greet); // { greet: Function }
 
-// From object definition
-const text = make({
-  upper: (s: string) => s.toUpperCase(),
-  lower: (s: string) => s.toLowerCase()
+// From object
+const api2 = make({
+  greet: (name: string) => `Hello, ${name}`
+}); // { greet: Function }
+```
+
+### Core Utilities
+
+#### `makeWith` / `provideTo`
+```typescript
+function makeWith<S extends object>(subject: S): <Fns extends Methods<S>>(
+  functionsMap: Fns
+) => ChainableApi<Fns, S>;
+
+// Where ChainableApi intelligently types chainable vs regular methods:
+type ChainableApi<Fns extends Methods<S>, S> = {
+  [K in keyof Omit<Fns, typeof IS_CHAINABLE>]:
+    Fns[K] extends (s: S, ...args: infer A) => S
+      ? (...args: A) => ChainableApi<Fns, S>  // Chainable methods return new API
+      : Fns[K] extends (s: S, ...args: infer A) => infer R
+        ? (...args: A) => R  // Regular methods return their value
+        : never;
+};
+```
+**(Core)** Creates an API by binding a subject to functions. Works with both regular and chainable methods.
+
+**Example:**
+```typescript
+const api = provideTo({ count: 0 })({
+  increment: (s) => ({ count: s.count + 1 }), // Regular method
+  get: (s) => s.count
 });
 ```
 
-### `makeWith`
-
-Creates methods that implicitly operate on a shared subject.
-
+#### `rebind` / `makeChainable`
 ```typescript
-interface Config { baseUrl: string; }
-const config: Config = { baseUrl: 'https://api.example.com' };
+// Overload 1: Object of functions
+function rebind<Obj extends Methods>(obj: Obj): Obj;
 
-const api = makeWith(config)({
-  get: (cfg, path: string) => fetch(`${cfg.baseUrl}/${path}`),
-  post: (cfg, path: string, data: any) => fetch(`${cfg.baseUrl}/${path}`, {
-    method: 'POST',
-    body: JSON.stringify(data)
+// Overload 2: Array of functions
+function rebind<Fs extends Array<(...args: any[]) => any>>(
+  ...fns: Fs
+): Record<string, Fs[number]>;
+```
+**(Core)** Marks methods for immutable, chainable behavior. When used with `provideTo`, these methods return a new API instance.
+
+**Example:**
+```typescript
+const counter = provideTo({ count: 0 })({
+  ...makeChainable({
+    increment: (s) => ({ count: s.count + 1 }),
+    add: (s, amount: number) => ({ count: s.count + amount })
+  }),
+  get: (s) => s.count
+});
+
+const newCounter = counter.increment().add(5); // Chainable!
+```
+
+### Advanced Utilities
+
+#### `makeLayered`
+```typescript
+function makeLayered<S extends object>(subject: S): <BaseFns extends Methods<S>>(
+  baseFns: BaseFns
+) => LayeredApiBuilder<ChainableApi<BaseFns, S>>;
+
+// Where LayeredApiBuilder allows chaining enhancement layers:
+type LayeredApiBuilder<CurrentApi extends object> = {
+  (): CurrentApi;  // Terminate and get final API
+  <EnhancerFns extends Methods<CurrentApi>>(
+    enhancerFns: EnhancerFns
+  ): LayeredApiBuilder<CurrentApi & BoundApi<CurrentApi, EnhancerFns>>;
+};
+```
+**(Advanced)** Creates a multi-layered, self-aware API. Each layer receives the previous API as context.
+
+**Example:**
+```typescript
+const api = makeLayered({ value: 10 })
+  // Base layer (can be chainable)
+  (makeChainable({
+    add: (s, n: number) => ({ value: s.value + n })
+  }))
+  // Enhancement layer (receives 'self' = previous layers)
+  ({
+    double: (self) => self.add(self.value)
   })
-});
-
-api.get('users');  // No need to pass config every time
+  (); // Terminate and build
 ```
 
-## 🎯 Use Cases
-
-### 1. API Clients
-
-Create clean API clients with shared configuration:
-
+#### `enrich`
 ```typescript
-const github = makeWith({ token: 'abc123', baseUrl: 'https://api.github.com' })({
-  getUser: (cfg, username) => 
-    fetch(`${cfg.baseUrl}/users/${username}`, {
-      headers: { 'Authorization': `Bearer ${cfg.token}` }
-    }).then(res => res.json()),
-  
-  listRepos: (cfg, username) => 
-    fetch(`${cfg.baseUrl}/users/${username}/repos`, {
-      headers: { 'Authorization': `Bearer ${cfg.token}` }
-    }).then(res => res.json())
+function enrich<
+  P extends (...args: any[]) => object,
+  S extends (primaryResult: ReturnType<P>) => object
+>(
+  primaryFactory: P,
+  secondaryFactory: S
+): (...args: Parameters<P>) => ReturnType<P> & ReturnType<S>;
+```
+**(Advanced)** Composes two factory functions where the second depends on the first, merging their results.
+
+**Example:**
+```typescript
+const createUser = (name: string) => ({ name, id: Math.random() });
+const addPermissions = (user: { id: number }) => ({
+  permissions: user.id > 0.5 ? ['admin'] : ['user']
 });
 
-// Use without repetition
-const user = await github.getUser('octocat');
-const repos = await github.listRepos('octocat');
+const createFullUser = enrich(createUser, addPermissions);
+const user = createFullUser('Alice');
+// { name: 'Alice', id: 0.7, permissions: ['admin'] }
 ```
 
-### 2. Immutable State Management
+### Type Utilities
 
-Create predictable state updates:
+The library exports several utility types that may be useful:
 
 ```typescript
-interface CounterState { count: number; }
+// A collection of methods that accept a subject as first parameter
+type Methods<S = any> = Record<string, (subject: S, ...args: any[]) => any>;
 
-const counter = {
-  increment: (state: CounterState, n: number): CounterState => 
-    ({ ...state, count: state.count + n }),
-  
-  decrement: (state: CounterState, n: number): CounterState => 
-    ({ ...state, count: state.count - n })
+// The resulting API type from makeWith/provideTo
+type ChainableApi<Fns extends Methods<S>, S> = { /* ... */ };
+
+// The resulting API type for non-chainable methods in makeLayered
+type BoundApi<S, F extends Methods<S>> = {
+  [K in keyof F]: F[K] extends (subject: S, ...args: infer A) => infer R
+    ? (...args: A) => R
+    : never;
 };
-
-// Initial state
-let state: CounterState = { count: 0 };
-let ops = makeWith(state)(counter);
-
-// Update state
-state = ops.increment(5);  // { count: 5 }
-ops = makeWith(state)(counter);  // Rebuild with new state
-
-console.log(state.count);  // 5
 ```
+<br />
 
-### 3. Utilities Collection
+## ❓ FAQ
 
-Group related functions:
+**Q: Is this a global state management library?**
+**A:** No. `Make With` is designed for creating self-contained, encapsulated objects. It's perfect for local component state or module-level state, but it has no built-in concept of a global, application-wide store.
 
-```typescript
-const stringUtils = make({
-  capitalize: (s: string) => s.charAt(0).toUpperCase() + s.slice(1),
-  reverse: (s: string) => s.split('').reverse().join(''),
-  truncate: (s: string, n: number) => s.length > n ? s.slice(0, n) + '...' : s
-});
+**Q: What about performance? Isn't creating new objects on every call slow?**
+**A:** For the vast majority of use cases (UI state, SDKs), the performance impact is negligible. JavaScript engines are highly optimized for short-lived object creation. For hot paths, you can use the mutable pattern shown in the advanced examples.
 
-stringUtils.capitalize('hello');  // "Hello"
-stringUtils.truncate('hello world', 5);  // "hello..."
-```
+**Q: Why the empty `()` call at the end of `makeLayered`?**
+**A:** This is the "terminator call." Because `makeLayered` allows a variable number of enhancement layers, it needs a clear signal that you are finished adding layers and want the final object to be constructed. The empty `()` provides an explicit and unambiguous way to finalize the process.
 
-## 🔄 Migration Examples
-
-### From Builder Pattern
-
-```typescript
-// ❌ Before
-class StringBuilder {
-  private value = '';
-  
-  append(str: string) {
-    this.value += str;
-    return this;
-  }
-  
-  prepend(str: string) {
-    this.value = str + this.value;
-    return this;
-  }
-  
-  build() {
-    return this.value;
-  }
-}
-
-const result = new StringBuilder()
-  .append('world')
-  .prepend('hello ')
-  .build();
-
-// ✅ After
-const string = {
-  append: (s: string, add: string) => s + add,
-  prepend: (s: string, add: string) => add + s
-};
-
-let value = '';
-const ops = makeWith(value)(string);
-value = ops.prepend('hello ');
-value = ops.append('world');
-```
-
-### From Classes
-
-```typescript
-// ❌ Before
-class Counter {
-  constructor(private count = 0) {}
-  
-  increment(n = 1) {
-    this.count += n;
-    return this;
-  }
-  
-  getCount() {
-    return this.count;
-  }
-}
-
-const counter = new Counter();
-counter.increment(5);
-console.log(counter.getCount());  // 5
-
-// ✅ After
-interface CounterState { count: number; }
-
-function increment(state: CounterState, n = 1): CounterState {
-  return { ...state, count: state.count + n };
-}
-
-function getCount(state: CounterState): number {
-  return state.count;
-}
-
-let state: CounterState = { count: 0 };
-let counter = makeWith(state)(increment, getCount);
-state = counter.increment(5);
-counter = makeWith(state)(increment, getCount);
-console.log(counter.getCount());  // 5
-```
-
-## 📚 Full API Documentation
-
-### `_with` 🔗
-
-Partially applies a value to a set of functions, returning an array of new functions with the value pre-applied.
-
-#### Signature
-```typescript
-function _with<S>(subject: S): <F extends ((subject: S, ...args: any[]) => any)[]>(...fns: F) => { [K in keyof F]: F[K] extends (subject: S, ...args: infer A) => infer R ? (...args: A) => R : never }
-```
-
-#### Type Parameters
-- **`S`**: The type of the `subject` to be partially applied.
-
-#### Parameters
-- **`subject: S`**: The value to be pre-applied as the first argument to each function.
-
-#### Returns
-- A function that:
-  - **Accepts**: `...fns: F[]` - An array of functions where each function expects `subject: S` as its first argument, followed by any additional arguments, and returns any type.
-  - **Returns**: An array of new functions where each original function has `subject` pre-applied, preserving the remaining argument types (`A`) and return type (`R`).
-
-#### Throws
-- **`Error`**: If any element in `fns` is not a function (`"All elements must be functions"`).
-
-#### Example
-```typescript
-interface State { value: number; }
-const state: State = { value: 5 };
-const modState = _with(state);
-const [getValue, increment] = modState(
-  (s: State) => s.value,
-  (s: State, n: number) => s.value + n
-);
-console.log(getValue());    // 5
-console.log(increment(3));  // 8
-```
-
-
-### `make` 🛠️
-
-Creates an object where each key is a function's name and each value is the function itself, accepting either an array of named functions or an object with function values. The updated implementation uses overloads to improve type preservation.
-
-#### Signature
-```typescript
-// Overload for array of functions
-function make<F extends (...args: any[]) => any>(...fns: F[]): Record<string, F>;
-// Overload for object with specific function signatures
-function make<Obj extends Record<string, (...args: any[]) => any>>(obj: Obj): Obj;
-```
-
-#### Type Parameters
-- **`F`**: The type of functions when an array is provided, constrained to functions with any arguments and return type.
-- **`Obj`**: The type of the object when an object is provided, constrained to a record with string keys and function values.
-
-#### Parameters
-- **`...fns: F[]`**: An array of named functions (for the first overload).
-- **`obj: Obj`**: An object with string keys and function values (for the second overload).
-
-#### Returns
-- For array input: **`Record<string, F>`** - An object where each key is a function's name (derived from the function's `.name` property) and each value is the corresponding function.
-- For object input: **`Obj`** - The same object passed in, preserving its exact type and function signatures.
-
-#### Throws
-- **`Error`**:
-  - `"Value for key \"<key>\" must be a function"` (object input, when a value is not a function).
-  - `"All elements must be functions"` (array input, when an element is not a function).
-  - `"All functions must have names"` (array input, when a function lacks a name).
-  - `"Duplicate function name \"<name>\""` (array input, when function names collide).
-
-#### Examples
-```typescript
-// Array of functions
-function add(a: number, b: number): number { return a + b; }
-const mathOps = make(add);
-console.log(mathOps.add(2, 3)); // 5
-
-// Object with functions
-const stringOps = make({
-  toUpper: (s: string) => s.toUpperCase(),
-  repeat: (s: string, n: number) => s.repeat(n)
-});
-console.log(stringOps.toUpper('hello')); // "HELLO"
-console.log(stringOps.repeat('hi', 2));  // "hihi"
-```
-
-
-### `makeWith` 🔄
-
-Creates a function that builds an object of partially applied functions based on a subject, accepting either an array of named functions or an object with named functions. The updated implementation uses overloads for better type safety and inference.
-
-#### Signature
-```typescript
-// Overload for object input with precise types
-function makeWith<S>(subject: S): <Obj extends Record<string, (subject: S, ...args: any[]) => any>>(obj: Obj) => PartiallyApplied<Obj, S>;
-// Overload for array input with general types
-function makeWith<S>(subject: S): (...fns: ((subject: S, ...args: any[]) => any)[]) => Record<string, (...args: any[]) => any>;
-```
-
-#### Type Parameters
-- **`S`**: The type of the `subject` to be partially applied.
-- **`Obj`**: The type of the object when an object is provided, constrained to a record with string keys and functions that accept `subject: S` as their first argument.
-
-#### Parameters
-- **`subject: S`**: The value to be pre-applied as the first argument to each function.
-
-#### Returns
-- A function that:
-  - **For object input**:
-    - **Accepts**: `obj: Obj` - An object where each value is a function expecting `subject: S` as its first argument.
-    - **Returns**: `PartiallyApplied<Obj, S>` - An object where each function has `subject` pre-applied, preserving the remaining argument types and return types from the original function signatures.
-  - **For array input**:
-    - **Accepts**: `...fns: ((subject: S, ...args: any[]) => any)[]` - An array of named functions expecting `subject: S` as their first argument.
-    - **Returns**: `Record<string, (...args: any[]) => any>` - An object where each key is a function name (from `.name`), and each value is a function with `subject` pre-applied, accepting any remaining arguments.
-
-#### Throws
-- **`Error`**:
-  - `"Value for key \"<key>\" must be a function"` (object input, when a value is not a function).
-  - `"All elements must be functions"` (array input, when an element is not a function).
-  - `"All functions must have names"` (array input, when a function lacks a name).
-  - `"Duplicate function name \"<name>\""` (array input, when function names collide).
-
-#### Examples
-```typescript
-// Object input with precise types
-interface Config { base: string; }
-const config: Config = { base: 'http://example.com' };
-const api = makeWith(config)({
-  get: (cfg: Config, path: string) => fetch(`${cfg.base}/${path}`).then(res => res.json())
-});
-api.get('data').then(console.log); // Type-safe: get(path: string) => Promise<any>
-
-// Array input with general types
-function add(s: { value: number }, n: number): number { return s.value + n; }
-const ops = makeWith({ value: 5 })(add);
-console.log(ops.add(3)); // 8, typed as (...args: any[]) => any
-```
-
+<br />
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions, issues, and feature requests are welcome! Please feel free to submit a Pull Request or open an issue.
+
+<br />
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License.
