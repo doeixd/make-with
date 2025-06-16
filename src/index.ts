@@ -39,6 +39,8 @@ type BoundApi<S, F extends Methods<S>> = {
     : never;
 };
 
+
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
 // Core Function Implementations
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
@@ -316,3 +318,271 @@ export default {
   enrich,
   makeLayered,
 };
+
+
+// =============================================================================
+// CORE UTILITY TYPES FOR @doeixd/make-with
+// These would be exported from the main library to help users
+// =============================================================================
+
+// =============================================================================
+// 1. STATE EXTRACTION UTILITIES
+// =============================================================================
+
+/**
+ * Extracts the state/subject type from any Make With API
+ * @example
+ * const api = provideTo({ count: 0 })({ get: s => s.count });
+ * type State = SubjectOf<typeof api>; // { count: number }
+ */
+export type SubjectOf<T> = T extends { getSubject(): infer S } ? S 
+  : T extends (...args: any[]) => any ? never 
+  : T extends Record<string, any> ? T[keyof T] extends (subject: infer S, ...args: any[]) => any ? S : never
+  : never;
+
+/**
+ * Extracts the return type of a specific method from a Make With API
+ * @example
+ * type GetResult = MethodReturnType<typeof api, 'get'>; // number
+ */
+export type MethodReturnType<API, Method extends keyof API> = 
+  API[Method] extends (...args: any[]) => infer R ? R : never;
+
+/**
+ * Extracts parameter types (excluding subject) from a method
+ * @example
+ * type AddParams = MethodParams<typeof api, 'add'>; // [amount: number]
+ */
+export type MethodParams<API, Method extends keyof API> = 
+  API[Method] extends (subject: any, ...args: infer P) => any ? P : never;
+
+// =============================================================================
+// 2. METHOD CLASSIFICATION HELPERS
+// =============================================================================
+
+/**
+ * Defines a method that updates state (for use with makeChainable)
+ * @example
+ * const updaters = {
+ *   increment: ((s) => ({ count: s.count + 1 })) satisfies StateUpdater<CounterState>
+ * };
+ */
+export type StateUpdater<S> = (state: S, ...args: any[]) => S;
+
+/**
+ * Defines a method that reads from state without changing it
+ * @example
+ * const getters = {
+ *   getCount: ((s) => s.count) satisfies StateGetter<CounterState, number>
+ * };
+ */
+export type StateGetter<S, R = any> = (state: S, ...args: any[]) => R;
+
+/**
+ * Defines a side-effect method that doesn't return new state
+ * @example
+ * const actions = {
+ *   log: ((s) => console.log(s.count)) satisfies SideEffect<CounterState>
+ * };
+ */
+export type SideEffect<S> = (state: S, ...args: any[]) => void | Promise<void>;
+
+/**
+ * Helper to ensure all methods in an object are state updaters
+ * @example
+ * const updates: Updaters<CounterState> = {
+ *   increment: (s) => ({ count: s.count + 1 }),
+ *   add: (s, amount: number) => ({ count: s.count + amount })
+ * };
+ */
+export type Updaters<S> = Record<string, StateUpdater<S>>;
+
+/**
+ * Helper to ensure all methods in an object are getters
+ * @example
+ * const getters: Getters<CounterState> = {
+ *   count: (s) => s.count,
+ *   isMax: (s) => s.count >= 100
+ * };
+ */
+export type Getters<S> = Record<string, StateGetter<S>>;
+
+// =============================================================================
+// 3. LAYER COMPOSITION HELPERS
+// =============================================================================
+
+/**
+ * Type for a layer function in makeLayered that adds methods
+ * @example
+ * const enhancer: Layer<BaseAPI, { double: () => void }> = (self) => ({
+ *   double: () => self.add(self.get())
+ * });
+ */
+export type Layer<PrevAPI, NewMethods extends Record<string, any>> = 
+  (self: PrevAPI) => NewMethods;
+
+/**
+ * Type for middleware that wraps existing methods
+ * @example
+ * const withLogging: Middleware<APIWithGet> = {
+ *   get: async (self, ...args) => {
+ *     console.log('Getting...');
+ *     return self.get(...args);
+ *   }
+ * };
+ */
+export type Middleware<BaseAPI> = {
+  [K in keyof BaseAPI]?: BaseAPI[K] extends (...args: any[]) => infer R
+    ? (self: BaseAPI, ...args: Parameters<BaseAPI[K]>) => R
+    : never;
+};
+
+/**
+ * Creates a type-safe enhancer that adds new methods to an existing API
+ * @example
+ * const enhancer: Enhancer<BaseAPI, { newMethod: () => string }> = (self) => ({
+ *   newMethod: () => "enhanced!"
+ * });
+ */
+export type Enhancer<BaseAPI, NewMethods> = (self: BaseAPI) => NewMethods;
+
+// =============================================================================
+// 4. FACTORY FUNCTION HELPERS
+// =============================================================================
+
+/**
+ * Type for factory functions that create Make With APIs
+ * @example
+ * const createCounter: Factory<{ initial: number }, CounterAPI> = 
+ *   (config) => provideTo({ count: config.initial })({ ... });
+ */
+export type Factory<Config, API> = (config: Config) => API;
+
+/**
+ * Creates a factory with dependencies
+ * @example
+ * const createUserAPI: FactoryWithDeps<UserConfig, Database, UserAPI> = 
+ *   (config, db) => provideTo({ db, ...config })({ ... });
+ */
+export type FactoryWithDeps<Config, Dependencies, API> = 
+  (config: Config, deps: Dependencies) => API;
+
+/**
+ * Extracts the config type from a factory
+ * @example
+ * type Config = ConfigOf<typeof createCounter>; // { initial: number }
+ */
+export type ConfigOf<F> = F extends Factory<infer C, any> ? C 
+  : F extends FactoryWithDeps<infer C, any, any> ? C 
+  : never;
+
+/**
+ * Extracts the API type from a factory
+ * @example
+ * type API = APIOf<typeof createCounter>; // CounterAPI
+ */
+export type APIOf<F> = F extends Factory<any, infer A> ? A 
+  : F extends FactoryWithDeps<any, any, infer A> ? A 
+  : never;
+
+// =============================================================================
+// 5. CHAINABLE API HELPERS
+// =============================================================================
+
+/**
+ * Marks methods as chainable (returns new API instance)
+ * @example
+ * const api = provideTo(state)({
+ *   ...makeChainable({ 
+ *     increment: ((s) => ({ count: s.count + 1 })) satisfies Chainable<State>
+ *   })
+ * });
+ */
+export type Chainable<S> = StateUpdater<S>;
+
+/**
+ * Type for methods that should NOT be chainable
+ * @example
+ * const methods = {
+ *   get: ((s) => s.count) satisfies NonChainable<State, number>
+ * };
+ */
+export type NonChainable<S, R = any> = StateGetter<S, R> | SideEffect<S>;
+
+/**
+ * Ensures a methods object only contains chainable methods
+ * @example
+ * const chainableMethods: OnlyChainable<State> = {
+ *   increment: (s) => ({ count: s.count + 1 }),
+ *   reset: (s) => ({ count: 0 })
+ * };
+ */
+export type OnlyChainable<S> = Record<string, Chainable<S>>;
+
+// =============================================================================
+// 6. VALIDATION HELPERS
+// =============================================================================
+
+/**
+ * Ensures a type is a valid Make With subject (plain object)
+ * @example
+ * type ValidState = ValidSubject<{ count: number }>; // ✅
+ * type InvalidState = ValidSubject<string>; // ❌ never
+ */
+export type ValidSubject<T> = T extends object 
+  ? T extends Function 
+    ? never 
+    : T 
+  : never;
+
+/**
+ * Ensures methods are properly typed for Make With
+ * @example
+ * const methods: ValidMethods<State> = {
+ *   get: (s) => s.count,
+ *   add: (s, n: number) => ({ count: s.count + n })
+ * };
+ */
+export type ValidMethods<S> = Record<string, (subject: S, ...args: any[]) => any>;
+
+/**
+ * Constraint to ensure immutable updates
+ * @example
+ * const updater: ImmutableUpdate<State> = (s) => ({ ...s, count: s.count + 1 });
+ */
+export type ImmutableUpdate<S> = (state: S, ...args: any[]) => S;
+
+// =============================================================================
+// 7. RUNTIME HELPERS
+// =============================================================================
+
+/**
+ * Type guard for chainable methods
+ * @example
+ * if (isChainableMethod(method)) {
+ *   // method is known to return new state
+ * }
+ */
+export const isChainableMethod = <S>(method: any): method is StateUpdater<S> => {
+  return typeof method === 'function' && method.__makeWith_chainable === true;
+};
+
+/**
+ * Helper to mark a method as chainable at runtime
+ * @example
+ * const increment = markChainable((s: State) => ({ count: s.count + 1 }));
+ */
+export const markChainable = <S>(fn: StateUpdater<S>): StateUpdater<S> => {
+  (fn as any).__makeWith_chainable = true;
+  return fn;
+};
+
+// =============================================================================
+// 8. RE-EXPORTS FOR CONVENIENCE
+// =============================================================================
+
+// Re-export the most commonly used types with shorter names
+export type Update<S> = StateUpdater<S>;
+export type Get<S, R = any> = StateGetter<S, R>;
+export type Effect<S> = SideEffect<S>;
+export type API<Config, Result> = Factory<Config, Result>;
