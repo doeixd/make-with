@@ -3,7 +3,7 @@
  * It provides tools for partial application and function composition, enabling elegant state
  * management patterns.
  *
- * @version 2.2.0
+ * @version 0.0.3
  * @license MIT
  */
 

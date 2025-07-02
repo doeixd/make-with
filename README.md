@@ -185,6 +185,26 @@ const guestApi = createAuthApi({ name: 'Guest', isAdmin: false });
 
 For the most complex scenarios, `makeLayered` gives you ultimate control. It builds an API in distinct, "self-aware" layers.
 
+#### Understanding Layer Functions vs Method Objects
+
+`makeLayered` supports two types of layers:
+
+**Method Objects** - Direct method definitions:
+```typescript
+{ methodName: (subject, ...args) => result }
+```
+
+**Layer Functions** - Functions that receive the current API and return methods:
+```typescript
+(currentApi) => ({ methodName: (subject, ...args) => result })
+```
+
+**When to use Layer Functions:**
+- When you need to reference methods from previous layers
+- When creating conditional or dynamic method definitions
+- When implementing decorators, middleware, or aspect-oriented patterns
+- When building methods that orchestrate multiple existing methods
+
 #### Pattern 1: Orchestration (Methods Calling Methods)
 
 The `double` method here orchestrates calls to `get` and `add` from previous layers, using `self` to refer to the API instance being built.
@@ -199,6 +219,31 @@ const counter = makeLayered({ count: 3 })
   (); // Finalizer call to build the object
 
 const finalCounter = counter.double(); // finalCounter.get() is 6
+```
+
+#### Pattern 1a: Using Layer Functions for Dynamic Orchestration
+
+Layer Functions provide more flexibility by receiving the current API as a parameter:
+
+```typescript
+const counter = makeLayered({ count: 3 })
+  (makeChainable({ 
+    add: (s, amount) => ({ ...s, count: s.count + amount }),
+    multiply: (s, factor) => ({ ...s, count: s.count * factor })
+  }))
+  ({ get: (s) => s.count })
+  // Layer Function - receives the current API and returns methods
+  ((api) => ({
+    double: (s) => api.add(api.get()), // Can call api.add and api.get
+    quadruple: (s) => api.multiply(4), // Can orchestrate multiple operations
+    addAndDouble: (s, amount) => {
+      const withAdded = api.add(amount);
+      return withAdded.double();
+    }
+  }))
+  ();
+
+const result = counter.addAndDouble(2); // adds 2, then doubles: (3+2)*2 = 10
 ```
 
 #### Pattern 2: Direct Mutation API (When You Want It)
@@ -277,6 +322,19 @@ For a comprehensive collection of examples demonstrating every feature of the li
 | `makeLayered`| - | **(Advanced)** Creates a multi-layered, self-aware API using a fluent interface. |
 | `enrich` | - | **(Advanced)** Composes two dependent factory functions and merges their results. |
 
+### Import Patterns
+
+**Named Imports (Recommended):**
+```typescript
+import { makeWith, makeChainable, makeLayered } from '@doeixd/make-with';
+```
+
+**Default Import (All functions):**
+```typescript
+import makeWithLib from '@doeixd/make-with';
+const api = makeWithLib.makeWith(state)(makeWithLib.makeChainable(methods));
+```
+
 ### API Reference
 
 #### `provide` (alias: `_with`)
@@ -342,15 +400,29 @@ const newCounter = counter.increment(); // Chainable!
 ```typescript
 function makeLayered<S extends object>(subject: S): LayeredApiBuilder<...>
 ```
-**(Advanced)** Creates a multi-layered, self-aware API. Each layer receives the API constructed from previous layers as its context (`self`).
+**(Advanced)** Creates a multi-layered, self-aware API. Each layer receives the API constructed from previous layers as its context (`self`). Supports both method objects and layer functions for maximum flexibility.
 
-**Example:**
+**Method Object Example:**
 ```typescript
 const api = makeLayered({ value: 10 })
   (makeChainable({ add: (s, n) => ({ value: s.value + n }) }))
   ({ double: (self) => self.add(self.value) })
   ();
 ```
+
+**Layer Function Example:**
+```typescript
+const api = makeLayered({ items: [] })
+  ({ add: (s, item) => ({ items: [...s.items, item] }) })
+  // Layer function receives the current API
+  ((currentApi) => ({
+    addMultiple: (s, items) => items.reduce((acc, item) => currentApi.add(item), s)
+  }))
+  ();
+```
+
+**Error Handling:**
+The library includes a custom `LayeredError` class for enhanced debugging and error tracking throughout the layered composition process.
 
 #### `enrich`
 ```typescript
@@ -365,6 +437,444 @@ const addStatus = (user: { id: number }) => ({ status: 'active' });
 const createFullUser = enrich(createUser, addStatus);
 ```
 <br />
+
+## 🏷️ TypeScript Guide
+
+Make With is built from the ground up with TypeScript, providing excellent type safety and inference. This section covers the type system, generics, and best practices.
+
+### Core Type Concepts
+
+#### 1. The `Methods<S>` Type
+The foundation type representing a collection of methods that operate on a subject:
+```typescript
+type Methods<S = any> = Record<string, (subject: S, ...args: any[]) => any>;
+
+// Example usage:
+interface UserState {
+  name: string;
+  age: number;
+}
+
+const userMethods: Methods<UserState> = {
+  getName: (state) => state.name,
+  setAge: (state, age: number) => ({ ...state, age }),
+  isAdult: (state) => state.age >= 18
+};
+```
+
+#### 2. The `ChainableApi<Fns, S>` Type
+The sophisticated return type that correctly infers chainable vs regular methods:
+```typescript
+type ChainableApi<Fns extends Methods<S>, S> = {
+  [K in keyof Omit<Fns, typeof IS_CHAINABLE>]: Fns[K] extends (
+    s: S,
+    ...args: infer A
+  ) => S
+    ? (...args: A) => ChainableApi<Fns, S>  // Chainable methods return new API
+    : Fns[K] extends (s: S, ...args: infer A) => infer R
+      ? (...args: A) => R                   // Regular methods return their result
+      : never;
+};
+```
+
+#### 3. Layer Function Types
+For advanced `makeLayered` composition:
+```typescript
+type LayerFunction<CurrentApi extends object> = 
+  (currentApi: CurrentApi) => Methods<CurrentApi>;
+
+// Example:
+const addLogging: LayerFunction<{ save: () => void }> = (api) => ({
+  saveWithLog: (state) => {
+    console.log('Saving...');
+    api.save();
+    console.log('Saved!');
+  }
+});
+```
+
+### Type Inference and Safety
+
+#### 1. Automatic Return Type Inference
+TypeScript automatically infers the correct API shape:
+```typescript
+const counter = makeWith({ count: 0 })({
+  ...makeChainable({
+    increment: (s) => ({ count: s.count + 1 }),     // Returns new API
+    add: (s, n: number) => ({ count: s.count + n }) // Returns new API
+  }),
+  get: (s) => s.count,                              // Returns number
+  isEven: (s) => s.count % 2 === 0                  // Returns boolean
+});
+
+// TypeScript knows the exact types:
+const newCounter = counter.increment();     // Type: ChainableApi<...>
+const count: number = counter.get();        // Type: number
+const even: boolean = counter.isEven();     // Type: boolean
+```
+
+#### 2. Parameter Type Safety
+Method parameters are strictly typed:
+```typescript
+interface TodoState {
+  items: Array<{ id: string; text: string; done: boolean }>;
+}
+
+const todoAPI = makeWith({ items: [] } as TodoState)({
+  ...makeChainable({
+    addTodo: (state, text: string) => ({
+      items: [...state.items, { id: crypto.randomUUID(), text, done: false }]
+    }),
+    toggleTodo: (state, id: string) => ({
+      items: state.items.map(item => 
+        item.id === id ? { ...item, done: !item.done } : item
+      )
+    })
+  }),
+  getTodo: (state, id: string) => state.items.find(item => item.id === id),
+  getTodoCount: (state) => state.items.length
+});
+
+// TypeScript enforces parameter types:
+todoAPI.addTodo("Buy milk");           // ✅ string parameter
+todoAPI.toggleTodo("some-id");         // ✅ string parameter
+// todoAPI.addTodo(123);               // ❌ TS Error: number not assignable to string
+```
+
+#### 3. Layered API Type Building
+`makeLayered` progressively builds type information:
+```typescript
+const api = makeLayered({ value: 0 })
+  // Layer 1: Base methods
+  (makeChainable({
+    add: (s, n: number) => ({ value: s.value + n }),
+    multiply: (s, n: number) => ({ value: s.value * n })
+  }))
+  // Layer 2: Getters (TypeScript knows about add/multiply)
+  ({
+    get: (s) => s.value,
+    getDouble: (s) => s.value * 2
+  })
+  // Layer 3: Orchestration (TypeScript knows about all previous methods)
+  ((currentApi) => ({
+    addThenDouble: (s, n: number) => {
+      const withAdded = currentApi.add(n);    // TS knows this returns new API
+      return withAdded.getDouble();           // TS knows this returns number
+    }
+  }))
+  ();
+
+// TypeScript knows the complete API shape
+const result: number = api.addThenDouble(5); // Type: number
+```
+
+### Common TypeScript Gotchas
+
+#### 1. Losing Type Information with `any`
+```typescript
+// ❌ Using any loses all type safety
+const badAPI = makeWith({ count: 0 } as any)({
+  increment: (s: any) => ({ count: s.count + 1 })  // No type checking!
+});
+
+// ✅ Use proper interfaces
+interface CounterState {
+  count: number;
+}
+
+const goodAPI = makeWith({ count: 0 } as CounterState)({
+  increment: (s) => ({ count: s.count + 1 })  // Fully typed!
+});
+```
+
+#### 2. Method Signature Mismatches
+```typescript
+interface State {
+  items: string[];
+}
+
+// ❌ Wrong: method doesn't match expected signature
+const badMethods = {
+  // Should be (subject: State, item: string) => newState
+  addItem: (item: string) => item  // Missing subject parameter!
+};
+
+// ✅ Correct: proper method signature
+const goodMethods: Methods<State> = {
+  addItem: (state, item: string) => ({ items: [...state.items, item] })
+};
+```
+
+#### 3. Chainable vs Non-Chainable Return Types
+```typescript
+const api = makeWith({ value: 0 })({
+  ...makeChainable({
+    // ❌ Chainable method not returning new state
+    badIncrement: (s) => {
+      console.log('incrementing');
+      // Missing return! TypeScript will catch this.
+    },
+    
+    // ✅ Chainable method returning new state
+    goodIncrement: (s) => ({ value: s.value + 1 })
+  }),
+  
+  // ❌ Non-chainable method trying to be chainable
+  getValue: (s) => ({ value: s.value }),  // Should just return s.value
+  
+  // ✅ Non-chainable method
+  get: (s) => s.value
+});
+```
+
+#### 4. Generic Type Constraints
+```typescript
+// When creating reusable functions, use proper constraints
+function createCounter<T extends { count: number }>(initialState: T) {
+  return makeWith(initialState)({
+    ...makeChainable({
+      increment: (s) => ({ ...s, count: s.count + 1 }),
+      add: (s, n: number) => ({ ...s, count: s.count + n })
+    }),
+    get: (s) => s.count
+  });
+}
+
+// Works with any object that has a count property
+const simpleCounter = createCounter({ count: 0 });
+const complexCounter = createCounter({ count: 0, name: "My Counter", active: true });
+```
+
+### Advanced Type Patterns
+
+#### 1. Conditional API Building
+```typescript
+function createUserAPI<T extends { isAdmin?: boolean }>(user: T) {
+  const baseAPI = makeLayered(user)
+    ({ getName: (u) => u.name })
+    ({ getRole: (u) => u.isAdmin ? 'admin' : 'user' });
+
+  // Conditionally add admin methods
+  if (user.isAdmin) {
+    return baseAPI
+      ({ deleteUser: (u, id: string) => `Admin ${u.name} deleting user ${id}` })
+      ();
+  }
+
+  return baseAPI();
+}
+
+const adminAPI = createUserAPI({ name: 'Alice', isAdmin: true });
+// TypeScript knows adminAPI has deleteUser method
+
+const userAPI = createUserAPI({ name: 'Bob', isAdmin: false });
+// TypeScript knows userAPI does NOT have deleteUser method
+```
+
+#### 2. Type-Safe Factory Composition
+```typescript
+interface UserBase {
+  name: string;
+  id: string;
+}
+
+interface UserWithPermissions extends UserBase {
+  permissions: string[];
+}
+
+const createUser = (name: string): UserBase => ({
+  name,
+  id: crypto.randomUUID()
+});
+
+const addPermissions = (user: UserBase): Pick<UserWithPermissions, 'permissions'> => ({
+  permissions: user.name.includes('admin') ? ['read', 'write', 'delete'] : ['read']
+});
+
+// TypeScript correctly infers the merged type
+const createFullUser = enrich(createUser, addPermissions);
+const user = createFullUser('admin-alice'); // Type: UserBase & { permissions: string[] }
+```
+
+### Best Practices for Type Safety
+
+1. **Always use interfaces for state objects**
+2. **Leverage TypeScript's inference instead of explicit typing**
+3. **Use `as const` for literal types when needed**
+4. **Prefer composition over complex inheritance hierarchies**
+5. **Use proper generic constraints for reusable functions**
+
+<br />
+
+## 🚨 Troubleshooting & Error Reference
+
+Make With includes comprehensive error handling with descriptive messages to help you identify and fix issues quickly. All errors are instances of the custom `LayeredError` class.
+
+### Common Error Scenarios
+
+#### 1. Invalid Subjects (State Objects)
+
+**Error:** `[makeWith] Subject cannot be null or undefined`
+```typescript
+// ❌ This will throw
+makeWith(null)({ get: (s) => s });
+makeWith(undefined)({ get: (s) => s });
+
+// ✅ Use valid objects
+makeWith({})({ get: (s) => s });
+makeWith({ value: 0 })({ get: (s) => s.value });
+```
+
+**Error:** `[makeWith] Subject must be an object, got string`
+```typescript
+// ❌ Primitives are not allowed
+makeWith("hello")({ length: (s) => s.length });
+
+// ✅ Wrap primitives in objects
+makeWith({ value: "hello" })({ length: (s) => s.value.length });
+```
+
+#### 2. Function Validation Errors
+
+**Error:** `[make] Argument at index 1 must be a function, got string`
+```typescript
+// ❌ All arguments must be functions
+make(validFunction, "not a function", anotherFunction);
+
+// ✅ Only pass functions
+make(validFunction, anotherFunction);
+```
+
+**Error:** `[make] Function at index 0 must have a non-empty name`
+```typescript
+// ❌ Anonymous functions need names for the API
+make(() => "hello");
+
+// ✅ Use named functions or provide as object
+make(function hello() { return "hello"; });
+// OR
+make({ hello: () => "hello" });
+```
+
+**Error:** `[make] Duplicate function name "save" found`
+```typescript
+// ❌ Function names must be unique
+function save() { /* version 1 */ }
+function save() { /* version 2 */ }
+make(save, save);
+
+// ✅ Use different names or pass as object to override
+make({ save: () => "version 2" });
+```
+
+#### 3. Chainable Method Return Value Errors
+
+**Error:** `[makeWith] Chainable method "increment" returned undefined`
+```typescript
+const counter = makeWith({ count: 0 })({
+  ...makeChainable({
+    // ❌ Chainable methods must return new state
+    increment: (s) => { s.count++; } // returns undefined
+  })
+});
+
+// ✅ Return new state object
+increment: (s) => ({ count: s.count + 1 })
+```
+
+**Error:** `[makeWith] Chainable method "reset" returned string. Chainable methods must return a new state object`
+```typescript
+// ❌ Chainable methods must return objects
+reset: (s) => "reset complete"
+
+// ✅ Return object state
+reset: (s) => ({ count: 0 })
+```
+
+#### 4. Layer Function Errors
+
+**Error:** `[makeLayered] Layer function must accept exactly one parameter, got function with 2 parameters`
+```typescript
+// ❌ Layer functions must accept exactly one parameter (the current API)
+makeLayered({ value: 0 })
+  ({ add: (s, n) => ({ value: s.value + n }) })
+  ((api, extraParam) => ({ double: (s) => api.add(api.value) })) // Wrong!
+  ();
+
+// ✅ Layer functions take only the current API
+((api) => ({ double: (s) => api.add(api.value) }))
+```
+
+**Error:** `[makeLayered] Layer function must return an object of methods, got undefined`
+```typescript
+// ❌ Layer functions must return method objects
+((api) => {
+  console.log("Setting up layer...");
+  // Missing return statement!
+})
+
+// ✅ Always return methods object
+((api) => ({
+  logAndDouble: (s) => {
+    console.log("Doubling...");
+    return api.add(api.value);
+  }
+}))
+```
+
+#### 5. Factory Composition Errors (`enrich`)
+
+**Error:** `[enrich] Primary factory must return an object, got string`
+```typescript
+// ❌ Both factories must return objects
+const badPrimary = (name) => `Hello ${name}`; // returns string
+const secondary = (obj) => ({ timestamp: Date.now() });
+
+enrich(badPrimary, secondary);
+
+// ✅ Return objects from both factories
+const goodPrimary = (name) => ({ greeting: `Hello ${name}` });
+```
+
+### Debugging Tips
+
+#### 1. Check Error Context
+All errors include context about where they occurred:
+```typescript
+// Error message format: [context] specific error details
+// Examples:
+// [makeWith] Subject cannot be null or undefined
+// [makeLayered] Layer 2 creation failed
+// [enrich] Factory composition failed
+```
+
+#### 2. Validate Method Signatures
+Ensure your methods follow the expected patterns:
+```typescript
+// Regular methods: (subject, ...args) => result
+get: (state) => state.value,
+add: (state, amount) => state.value + amount,
+
+// Chainable methods: (subject, ...args) => newSubject
+increment: (state) => ({ ...state, count: state.count + 1 }),
+
+// Layer functions: (currentApi) => methods
+(api) => ({ 
+  double: (state) => api.increment().increment() 
+})
+```
+
+#### 3. Use TypeScript for Better Error Prevention
+TypeScript will catch many issues at compile time:
+```typescript
+// TypeScript will warn about return type mismatches
+const counter = makeWith({ count: 0 })({
+  ...makeChainable({
+    // TS Error: Type 'void' is not assignable to type '{ count: number }'
+    badIncrement: (s) => { s.count++; }
+  })
+});
+```
 
 ## ❓ FAQ
 
