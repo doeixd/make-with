@@ -3,7 +3,7 @@
  * It provides tools for partial application and function composition, enabling elegant state
  * management patterns.
  *
- * @version 0.0.3
+ * @version 0.0.5
  * @license MIT
  */
 
@@ -525,15 +525,16 @@ export function compose<T extends Record<string, MethodFunction<any>>>(
 
 
 /**
- * Creates a function that can merge multiple method objects, with later objects
- * taking precedence over earlier ones. Useful for combining base functionality.
+ * Merges multiple method objects with later objects taking precedence, or creates a curried
+ * merger function for partial application. This enhanced version supports both immediate merging
+ * and functional composition patterns.
  *
  * @template T The type of method objects to merge.
  * @param objects Method objects to merge, in order of precedence (later objects override earlier).
- * @returns A single merged object containing all methods.
+ * @returns A single merged object, or a curried function for further merging.
  *
  * @example
- * // Merge base methods with extensions
+ * // Direct merging (original behavior)
  * const baseMethods = { get: (s) => s.value, set: (s, v) => ({ value: v }) };
  * const extensions = { increment: (s) => ({ value: s.value + 1 }) };
  * const validation = { set: (s, v) => v >= 0 ? ({ value: v }) : s }; // Override set
@@ -542,25 +543,99 @@ export function compose<T extends Record<string, MethodFunction<any>>>(
  * const api = makeWith({ value: 0 })(allMethods);
  *
  * @example
- * // Conditional merging
- * const createAPI = (withAdmin = false) => {
- *   const base = { getUser: (s, id) => s.users[id] };
- *   const admin = withAdmin ? { deleteUser: (s, id) => ({ users: s.users.filter(u => u.id !== id) }) } : {};
- *   return makeWith(initialState)(merge(base, admin));
+ * // Curried usage for extension patterns
+ * const addDefaults = merge({ role: 'user', active: true });
+ * const withAuth = merge({ isAuthenticated: (s) => !!s.token });
+ * 
+ * const userMethods = addDefaults(withAuth({ login: (s, token) => ({ ...s, token }) }));
+ * 
+ * @example
+ * // Building reusable extensions
+ * const withTimestamp = merge({
+ *   addTimestamp: (s) => ({ ...s, createdAt: Date.now() }),
+ *   updateTimestamp: (s) => ({ ...s, updatedAt: Date.now() })
+ * });
+ * 
+ * const withValidation = merge({
+ *   validate: (s, rules) => rules.every(rule => rule(s))
+ * });
+ * 
+ * // Compose multiple extensions
+ * const enhancedAPI = makeWith(initialState)(
+ *   withValidation(withTimestamp(baseMethods))
+ * );
+ * 
+ * @example
+ * // Conditional merging with currying
+ * const createUserAPI = (isAdmin: boolean) => {
+ *   const base = { getProfile: (s) => s.profile };
+ *   const adminMethods = isAdmin ? { deleteUser: (s, id) => ({ ...s, deleted: [...s.deleted, id] }) } : {};
+ *   return makeWith(initialState)(merge(base)(adminMethods));
  * };
+ * 
+ * @example
+ * // Chaining extensions functionally
+ * const processUser = (baseUser) => 
+ *   merge({ id: crypto.randomUUID() })(
+ *     merge({ createdAt: Date.now() })(
+ *       merge({ role: 'user' })(baseUser)
+ *     )
+ *   );
  */
-export function merge<T extends Methods>(...objects: T[]): T {
+export function merge<T extends Methods>(...objects: T[]): T;
+export function merge<T extends Methods>(
+  firstObject: T
+): <U extends Methods>(...additionalObjects: U[]) => T & U;
+export function merge<T extends Methods>(...objects: T[]): T | (<U extends Methods>(...additionalObjects: U[]) => T & U) {
   if (objects.length === 0) {
     throw createError('merge', 'At least one object must be provided');
   }
 
-  for (let i = 0; i < objects.length; i++) {
+  // Validate the first object
+  const firstObj = objects[0];
+  if (!firstObj || typeof firstObj !== 'object') {
+    throw createError('merge', 'First argument must be a non-null object');
+  }
+
+  try {
+    validateMethods(firstObj, 'merge first argument');
+  } catch (error) {
+    throw createError('merge', 'First object validation failed', error);
+  }
+
+  // If only one object provided, return a curried function
+  if (objects.length === 1) {
+    return function <U extends Methods>(...additionalObjects: U[]): T & U {
+      if (additionalObjects.length === 0) {
+        throw createError('merge', 'At least one additional object must be provided to merge');
+      }
+
+      // Validate additional objects
+      for (let i = 0; i < additionalObjects.length; i++) {
+        const obj = additionalObjects[i];
+        if (!obj || typeof obj !== 'object') {
+          throw createError('merge', `Additional argument at index ${i} must be a non-null object`);
+        }
+
+        try {
+          validateMethods(obj, `merge additional argument ${i}`);
+        } catch (error) {
+          throw createError('merge', `Additional object at index ${i} validation failed`, error);
+        }
+      }
+
+      // Merge first object with additional objects
+      return Object.assign({}, firstObj, ...additionalObjects) as T & U;
+    };
+  }
+
+  // Multiple objects provided - merge immediately (original behavior)
+  for (let i = 1; i < objects.length; i++) {
     const obj = objects[i];
     if (!obj || typeof obj !== 'object') {
       throw createError('merge', `Argument at index ${i} must be a non-null object`);
     }
 
-    // Validate methods in each object
     try {
       validateMethods(obj, `merge argument ${i}`);
     } catch (error) {
@@ -2218,3 +2293,4 @@ export type ComposableMethods<S extends object, PrevMethods extends Methods<S> =
   ? ComposableMethod<S, A, R, R>
   : never;
 };
+

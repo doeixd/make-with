@@ -61,7 +61,7 @@
     "watch": "pridepack watch",
     "start": "pridepack start",
     "dev": "pridepack dev",
-    "test": "vitest"
+    "test": "vitest --run"
   },
   "private": false,
   "description": "Lightweight function application utilities",
