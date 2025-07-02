@@ -571,6 +571,1166 @@ export function merge<T extends Methods>(...objects: T[]): T {
   return Object.assign({}, ...objects);
 }
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+// Advanced Merge Primitives
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+
+/** Type representing a property descriptor that can be used as a merge key */
+type MergePropertyDescriptor = {
+  key: string | symbol;
+  enumerable?: boolean;
+  configurable?: boolean;
+  writable?: boolean;
+};
+
+/** Type for merge result - either success with merged object or failure with error details */
+type MergeResult<T> = 
+  | { success: true; data: T }
+  | { success: false; failures: Array<[string | symbol, unknown]> };
+
+/** Type for merge definition functions */
+type MergeDefinition<T> = {
+  [K in keyof T]?: (objA: Pick<T, K>, objB: Pick<T, K>, key: K) => T[K] | { error: unknown };
+};
+
+/** Type for tuple-based merge definitions */
+type TupleMergeDefinition<T extends Record<string | symbol, any>> = Array<[
+  keyof T | MergePropertyDescriptor,
+  (objA: any, objB: any, key: keyof T) => T[keyof T] | { error: unknown }
+]>;
+
+/** Helper to get property descriptors for objects */
+export function getKeyDescriptions<T extends object, U extends object>(
+  objA: T, 
+  objB: U
+): Array<[string | symbol, PropertyDescriptor, PropertyDescriptor]> {
+  const allKeys = new Set([
+    ...Object.getOwnPropertyNames(objA),
+    ...Object.getOwnPropertySymbols(objA),
+    ...Object.getOwnPropertyNames(objB),
+    ...Object.getOwnPropertySymbols(objB)
+  ]);
+
+  return Array.from(allKeys).map(key => {
+    const descA = Object.getOwnPropertyDescriptor(objA, key) || {
+      enumerable: false,
+      configurable: false,
+      writable: false,
+      key
+    };
+    const descB = Object.getOwnPropertyDescriptor(objB, key) || {
+      enumerable: false,
+      configurable: false,
+      writable: false,
+      key
+    };
+
+    return [key, descA, descB] as [string | symbol, PropertyDescriptor, PropertyDescriptor];
+  });
+}
+
+/**
+ * Creates a type-safe, auto-curried merger function that can merge objects according to custom merge strategies.
+ * Supports both object-based and tuple-based merge definitions with comprehensive error handling.
+ *
+ * @template T The type of objects to be merged.
+ * @param mergeDefinition An object where each key maps to a function that defines how to merge that property.
+ * @returns An auto-curried function that merges objects or returns detailed failure information.
+ *
+ * @example
+ * // Basic usage with merge definition object
+ * interface User {
+ *   name: string;
+ *   age: number;
+ *   tags: string[];
+ * }
+ * 
+ * const userMerger = createMerger<User>({
+ *   name: (a, b, key) => a.name || b.name,
+ *   age: (a, b, key) => Math.max(a.age || 0, b.age || 0),
+ *   tags: (a, b, key) => [...(a.tags || []), ...(b.tags || [])]
+ * });
+ * 
+ * const user1 = { name: "Alice", age: 25, tags: ["admin"] };
+ * const user2 = { name: "", age: 30, tags: ["user"] };
+ * 
+ * const result = userMerger(user1, user2);
+ * if (result.success) {
+ *   console.log(result.data); // { name: "Alice", age: 30, tags: ["admin", "user"] }
+ * }
+ * 
+ * @example
+ * // Auto-currying support
+ * const partialMerger = userMerger(user1);
+ * const result2 = partialMerger(user2); // Same result as above
+ * 
+ * @example
+ * // Error handling
+ * const strictMerger = createMerger<User>({
+ *   name: (a, b, key) => a.name === b.name ? a.name : { error: "Name mismatch" },
+ *   age: (a, b, key) => a.age > 0 && b.age > 0 ? Math.max(a.age, b.age) : { error: "Invalid age" }
+ * });
+ * 
+ * const badResult = strictMerger({ name: "Alice", age: -1, tags: [] }, { name: "Bob", age: 30, tags: [] });
+ * if (!badResult.success) {
+ *   console.log(badResult.failures); // [["name", "Name mismatch"], ["age", "Invalid age"]]
+ * }
+ */
+export function createMerger<T extends Record<string | symbol, any>>(
+  mergeDefinition: MergeDefinition<T>
+): {
+  (objA: Partial<T>): (objB: Partial<T>) => MergeResult<T>;
+  (objA: Partial<T>, objB: Partial<T>): MergeResult<T>;
+};
+
+/**
+ * Creates a merger using tuple-based definitions for advanced property descriptor handling.
+ *
+ * @template T The type of objects to be merged.
+ * @param tupleDefinitions Array of tuples where each tuple contains a key/descriptor and merge function.
+ * @returns An auto-curried function that merges objects according to the tuple definitions.
+ *
+ * @example
+ * // Using property descriptors
+ * const descriptorMerger = createMerger<{ value: number; meta: string }>([
+ *   ["value", (a, b, key) => (a.value || 0) + (b.value || 0)],
+ *   [{ key: "meta", enumerable: true }, (a, b, key) => `${a.meta || ""}_${b.meta || ""}`]
+ * ]);
+ * 
+ * const obj1 = { value: 10, meta: "first" };
+ * const obj2 = { value: 20, meta: "second" };
+ * const result = descriptorMerger(obj1, obj2);
+ * // result.data = { value: 30, meta: "first_second" }
+ */
+export function createMerger<T extends Record<string | symbol, any>>(
+  tupleDefinitions: TupleMergeDefinition<T>
+): {
+  (objA: Partial<T>): (objB: Partial<T>) => MergeResult<T>;
+  (objA: Partial<T>, objB: Partial<T>): MergeResult<T>;
+};
+
+export function createMerger<T extends Record<string | symbol, any>>(
+  definition: MergeDefinition<T> | TupleMergeDefinition<T>
+): {
+  (objA: Partial<T>): (objB: Partial<T>) => MergeResult<T>;
+  (objA: Partial<T>, objB: Partial<T>): MergeResult<T>;
+} {
+  if (!definition) {
+    throw createError('createMerger', 'Merge definition cannot be null or undefined');
+  }
+
+  // Normalize tuple definitions to object format
+  let normalizedDefinition: MergeDefinition<T>;
+  
+  if (Array.isArray(definition)) {
+    normalizedDefinition = {} as MergeDefinition<T>;
+    
+    for (const [keyOrDescriptor, mergeFn] of definition) {
+      if (typeof keyOrDescriptor === 'object' && 'key' in keyOrDescriptor) {
+        const key = keyOrDescriptor.key as keyof T;
+        normalizedDefinition[key] = mergeFn as any;
+      } else {
+        const key = keyOrDescriptor as keyof T;
+        normalizedDefinition[key] = mergeFn as any;
+      }
+    }
+  } else {
+    normalizedDefinition = definition;
+  }
+
+  // Validate the definition
+  for (const [key, mergeFn] of Object.entries(normalizedDefinition)) {
+    if (typeof mergeFn !== 'function') {
+      throw createError('createMerger', `Merge function for key "${key}" must be a function, got ${typeof mergeFn}`);
+    }
+  }
+
+  function performMerge(objA: Partial<T>, objB: Partial<T>): MergeResult<T> {
+    if (!objA || typeof objA !== 'object') {
+      throw createError('createMerger', 'First object must be a non-null object');
+    }
+    
+    if (!objB || typeof objB !== 'object') {
+      throw createError('createMerger', 'Second object must be a non-null object');
+    }
+
+    const result = {} as T;
+    const failures: Array<[string | symbol, unknown]> = [];
+
+    // Get all keys from both objects
+    const allKeys = new Set([
+      ...Object.getOwnPropertyNames(objA),
+      ...Object.getOwnPropertySymbols(objA),
+      ...Object.getOwnPropertyNames(objB), 
+      ...Object.getOwnPropertySymbols(objB)
+    ]);
+
+    for (const key of allKeys) {
+      const typedKey = key as keyof T;
+      const mergeFn = normalizedDefinition[typedKey];
+
+      if (mergeFn) {
+        try {
+          const objAWithKey = objA.hasOwnProperty(key) ? 
+            ({ [key]: objA[typedKey] } as unknown as Pick<T, typeof typedKey>) : 
+            ({} as Pick<T, typeof typedKey>);
+          const objBWithKey = objB.hasOwnProperty(key) ? 
+            ({ [key]: objB[typedKey] } as unknown as Pick<T, typeof typedKey>) : 
+            ({} as Pick<T, typeof typedKey>);
+          
+          const mergeResult = mergeFn(objAWithKey, objBWithKey, typedKey);
+          
+          if (mergeResult && typeof mergeResult === 'object' && 'error' in mergeResult) {
+            failures.push([key, mergeResult.error]);
+          } else {
+            result[typedKey] = mergeResult;
+          }
+        } catch (error) {
+          failures.push([key, error]);
+        }
+      } else {
+        // Default behavior: objB takes precedence
+        if (objB.hasOwnProperty(key)) {
+          result[typedKey] = objB[typedKey]!;
+        } else if (objA.hasOwnProperty(key)) {
+          result[typedKey] = objA[typedKey]!;
+        }
+      }
+    }
+
+    if (failures.length > 0) {
+      return { success: false, failures };
+    }
+
+    return { success: true, data: result };
+  }
+
+  // Auto-curried implementation
+  function merger(objA: Partial<T>): (objB: Partial<T>) => MergeResult<T>;
+  function merger(objA: Partial<T>, objB: Partial<T>): MergeResult<T>;
+  function merger(objA: Partial<T>, objB?: Partial<T>): any {
+    if (objB === undefined) {
+      // Return curried function
+      return (secondObj: Partial<T>) => performMerge(objA, secondObj);
+    }
+    
+    // Perform immediate merge
+    return performMerge(objA, objB);
+  }
+
+  return merger;
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+// Dynamic API Generation Primitives
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+
+/** Type for proxy handler function result */
+type ProxyHandlerResult<T> = T | { error: unknown } | undefined;
+
+/** Type for proxy handler function */
+type ProxyHandler<S extends Record<string | symbol, any>> = (
+  state: S,
+  methodName: string | symbol,
+  ...args: unknown[]
+) => ProxyHandlerResult<any>;
+
+/** Type for proxy handler utility function */
+type ProxyHandlerUtil<S extends Record<string | symbol, any>> = (
+  state: S,
+  methodName: string | symbol,
+  ...args: unknown[]
+) => ProxyHandlerResult<any>;
+
+/** Lens getter function type */
+type LensGetter<S, T> = (state: S) => T;
+
+/** Lens setter function type */
+type LensSetter<S, T> = (state: S, focused: T) => S;
+
+/**
+ * Utility function for common get/set pattern in createProxy.
+ * Handles getXxx() and setXxx() method patterns automatically.
+ *
+ * @template S The type of the state object.
+ * @param state The current state.
+ * @param methodName The method being called.
+ * @param args The arguments passed to the method.
+ * @returns The result of the get/set operation or undefined if pattern doesn't match.
+ *
+ * @example
+ * const userAPI = createProxy(getSet);
+ * // Automatically provides: getName(), setName(value), getAge(), setAge(value), etc.
+ */
+export function getSet<S extends Record<string | symbol, any>>(
+  state: S,
+  methodName: string | symbol,
+  ...args: unknown[]
+): ProxyHandlerResult<any> {
+  const method = String(methodName);
+  
+  if (method.startsWith('get') && method.length > 3) {
+    const field = method.charAt(3).toLowerCase() + method.slice(4);
+    return state[field as keyof S];
+  }
+  
+  if (method.startsWith('set') && method.length > 3 && args.length > 0) {
+    const field = method.charAt(3).toLowerCase() + method.slice(4);
+    if (field in state) {
+      return { ...state, [field]: args[0] } as S;
+    }
+  }
+  
+  return undefined;
+}
+
+/**
+ * Utility function that wraps another proxy handler to ignore case in method names.
+ *
+ * @template S The type of the state object.
+ * @param handler The proxy handler to wrap.
+ * @returns A new handler that normalizes method names to lowercase.
+ *
+ * @example
+ * const userAPI = createProxy(ignoreCase(getSet));
+ * // Now getName(), getname(), GETNAME() all work the same way
+ */
+export function ignoreCase<S extends Record<string | symbol, any>>(
+  handler: ProxyHandlerUtil<S>
+): ProxyHandlerUtil<S> {
+  return (state: S, methodName: string | symbol, ...args: unknown[]) => {
+    const normalizedName = typeof methodName === 'string' ? methodName.toLowerCase() : methodName;
+    return handler(state, normalizedName, ...args);
+  };
+}
+
+/**
+ * Utility function that wraps another proxy handler to strip special characters from method names.
+ *
+ * @template S The type of the state object.
+ * @param handler The proxy handler to wrap.
+ * @returns A new handler that removes special characters from method names.
+ *
+ * @example
+ * const userAPI = createProxy(noSpecialChars(getSet));
+ * // Now get_name(), get-name(), get$name() all become getname()
+ */
+export function noSpecialChars<S extends Record<string | symbol, any>>(
+  handler: ProxyHandlerUtil<S>
+): ProxyHandlerUtil<S> {
+  return (state: S, methodName: string | symbol, ...args: unknown[]) => {
+    const cleanName = typeof methodName === 'string' 
+      ? methodName.replace(/[^a-zA-Z0-9]/g, '')
+      : methodName;
+    return handler(state, cleanName, ...args);
+  };
+}
+
+/**
+ * Utility function that combines multiple proxy handlers, trying each in order until one returns a result.
+ *
+ * @template S The type of the state object.
+ * @param handlers Array of proxy handlers to try in order.
+ * @returns A combined handler that delegates to the first matching handler.
+ *
+ * @example
+ * const userAPI = createProxy(fallback([
+ *   customMethods,
+ *   getSet,
+ *   (state, method) => `Method ${method} not found`
+ * ]));
+ */
+export function fallback<S extends Record<string | symbol, any>>(
+  handlers: ProxyHandlerUtil<S>[]
+): ProxyHandlerUtil<S> {
+  return (state: S, methodName: string | symbol, ...args: unknown[]) => {
+    for (const handler of handlers) {
+      const result = handler(state, methodName, ...args);
+      if (result !== undefined) {
+        return result;
+      }
+    }
+    return undefined;
+  };
+}
+
+/**
+ * Creates a dynamic API using ES6 Proxy that generates methods on-the-fly based on a handler function.
+ * This enables highly flexible APIs where methods are created dynamically based on state shape or naming patterns.
+ *
+ * @template S The type of the state object.
+ * @param handler Function that receives (state, methodName, ...args) and returns the result or new state.
+ * @returns A function that takes initial state and returns a dynamic API with auto-generated methods.
+ *
+ * @example
+ * // Basic usage with built-in getSet utility
+ * interface User {
+ *   name: string;
+ *   age: number;
+ *   email: string;
+ * }
+ * 
+ * const userAPI = createProxy<User>(getSet)({ 
+ *   name: "Alice", 
+ *   age: 25, 
+ *   email: "alice@example.com" 
+ * });
+ * 
+ * // Methods are generated automatically:
+ * const name = userAPI.getName();           // "Alice"
+ * const updated = userAPI.setAge(26);       // Returns new API with age: 26
+ * const email = updated.getEmail();         // "alice@example.com"
+ * 
+ * @example
+ * // Composing utilities for flexible method generation
+ * const flexibleAPI = createProxy<User>(
+ *   ignoreCase(noSpecialChars(getSet))
+ * )({ name: "Bob", age: 30, email: "bob@test.com" });
+ * 
+ * // All these work the same way:
+ * flexibleAPI.getName();       // Standard
+ * flexibleAPI.getname();       // Ignore case
+ * flexibleAPI.get_name();      // No special chars
+ * flexibleAPI.GET_NAME();      // Both combined
+ * 
+ * @example
+ * // Custom handler with business logic
+ * interface Counter {
+ *   count: number;
+ *   step: number;
+ * }
+ * 
+ * const counterAPI = createProxy<Counter>((state, method, ...args) => {
+ *   const methodStr = String(method);
+ *   
+ *   if (methodStr === 'increment') {
+ *     return { ...state, count: state.count + state.step };
+ *   }
+ *   
+ *   if (methodStr === 'decrement') {
+ *     return { ...state, count: state.count - state.step };
+ *   }
+ *   
+ *   if (methodStr === 'reset') {
+ *     return { ...state, count: 0 };
+ *   }
+ *   
+ *   if (methodStr.startsWith('add')) {
+ *     const amount = args[0] as number;
+ *     return { ...state, count: state.count + amount };
+ *   }
+ *   
+ *   // Fallback to getSet for other methods
+ *   return getSet(state, method, ...args);
+ * })({ count: 0, step: 1 });
+ * 
+ * const result = counterAPI
+ *   .increment()          // count: 1
+ *   .increment()          // count: 2  
+ *   .add(5)              // count: 7
+ *   .setStep(2)          // step: 2
+ *   .increment();        // count: 9
+ * 
+ * @example
+ * // Error handling with validation
+ * const validatedAPI = createProxy<User>((state, method, ...args) => {
+ *   const result = getSet(state, method, ...args);
+ *   
+ *   // Add validation for setters
+ *   if (String(method).startsWith('set') && result && typeof result === 'object') {
+ *     if ('age' in result && (result as any).age < 0) {
+ *       return { error: 'Age cannot be negative' };
+ *     }
+ *     if ('email' in result && !(result as any).email.includes('@')) {
+ *       return { error: 'Invalid email format' };
+ *     }
+ *   }
+ *   
+ *   return result;
+ * })({ name: "Alice", age: 25, email: "alice@example.com" });
+ * 
+ * const badResult = validatedAPI.setAge(-5);  // Returns { error: 'Age cannot be negative' }
+ * const goodResult = validatedAPI.setAge(26); // Returns new API with age: 26
+ */
+export function createProxy<S extends Record<string | symbol, any>>(
+  handler: ProxyHandler<S>
+): (initialState: S) => any {
+  if (typeof handler !== 'function') {
+    throw createError('createProxy', 'Handler must be a function');
+  }
+
+  return function (initialState: S) {
+    if (!initialState || typeof initialState !== 'object') {
+      throw createError('createProxy', 'Initial state must be a non-null object');
+    }
+
+    // Create the base API object with internal state
+    const baseAPI = {
+      [INTERNAL_STATE]: initialState,
+    };
+
+    // Create and return the proxy
+    return new Proxy(baseAPI, {
+      get(target: any, prop: string | symbol): any {
+        // Return internal state if requested
+        if (prop === INTERNAL_STATE) {
+          return target[INTERNAL_STATE];
+        }
+
+        // Skip symbol properties and prototype methods
+        if (typeof prop === 'symbol' || prop === 'constructor' || prop === 'toString' || prop === 'valueOf') {
+          return target[prop];
+        }
+
+        // Return a function that calls the handler
+        return function (...args: unknown[]) {
+          try {
+            const currentState = target[INTERNAL_STATE];
+            const result = handler(currentState, prop, ...args);
+
+            // Handle error results
+            if (result && typeof result === 'object' && 'error' in result) {
+              throw createError('createProxy', `Method "${String(prop)}" failed: ${result.error}`);
+            }
+
+            // If result is undefined, the method doesn't exist
+            if (result === undefined) {
+              throw createError('createProxy', `Method "${String(prop)}" is not supported`);
+            }
+
+            // If result is the same type as state, treat as chainable (return new proxy)
+            if (result && typeof result === 'object' && typeof currentState === 'object') {
+              // Check if this looks like a state update (has similar structure)
+              const stateKeys = Object.keys(currentState);
+              const resultKeys = Object.keys(result);
+              const isStateUpdate = stateKeys.some(key => key in result) || resultKeys.length > 0;
+
+              if (isStateUpdate) {
+                // Return new proxy with updated state
+                return createProxy(handler)(result as S);
+              }
+            }
+
+            // Otherwise return the result directly (non-chainable)
+            return result;
+          } catch (error) {
+            if (error instanceof LayeredError) {
+              throw error;
+            }
+            throw createError('createProxy', `Method "${String(prop)}" execution failed`, error);
+          }
+        };
+      },
+
+      has(_target: any, prop: string | symbol): boolean {
+        // Internal symbols always exist
+        if (prop === INTERNAL_STATE) return true;
+        
+        // For dynamic methods, we can't know ahead of time, so return true for string props
+        return typeof prop === 'string';
+      },
+
+      ownKeys(target: any): ArrayLike<string | symbol> {
+        // Return internal state keys plus common method patterns
+        const state = target[INTERNAL_STATE];
+        const stateKeys = Object.keys(state);
+        
+        // Generate common getter/setter patterns
+        const methodNames = stateKeys.flatMap(key => [
+          `get${key.charAt(0).toUpperCase() + key.slice(1)}`,
+          `set${key.charAt(0).toUpperCase() + key.slice(1)}`
+        ]);
+
+        return [...methodNames, INTERNAL_STATE];
+      },
+
+      getOwnPropertyDescriptor(_target: any, prop: string | symbol) {
+        if (prop === INTERNAL_STATE) {
+          return { configurable: true, enumerable: false, writable: true };
+        }
+        
+        // Dynamic methods are configurable and enumerable
+        if (typeof prop === 'string') {
+          return { configurable: true, enumerable: true, writable: false };
+        }
+        
+        return undefined;
+      }
+    });
+  };
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+// State Focus Primitives  
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+
+/**
+ * Creates a lens that focuses method operations on a specific slice of state.
+ * This enables building APIs that operate on nested state structures while maintaining
+ * type safety and immutability patterns.
+ *
+ * @template S The type of the full state object.
+ * @template T The type of the focused state slice.
+ * @param getter Function that extracts the focused slice from the full state.
+ * @param setter Function that updates the full state with a new focused slice.
+ * @returns A function that takes methods and returns focused versions of those methods.
+ *
+ * @example
+ * // Basic lens usage for nested state
+ * interface AppState {
+ *   user: {
+ *     name: string;
+ *     email: string;
+ *     preferences: {
+ *       theme: string;
+ *       notifications: boolean;
+ *     };
+ *   };
+ *   posts: Post[];
+ *   ui: UIState;
+ * }
+ * 
+ * // Create a lens focused on the user slice
+ * const userLens = createLens<AppState, AppState['user']>(
+ *   state => state.user,
+ *   (state, user) => ({ ...state, user })
+ * );
+ * 
+ * // Methods that operate on the user slice
+ * const userMethods = {
+ *   updateName: (user, name: string) => ({ ...user, name }),
+ *   updateEmail: (user, email: string) => ({ ...user, email }),
+ *   getName: (user) => user.name,
+ *   getEmail: (user) => user.email
+ * };
+ * 
+ * // Create API focused on user slice
+ * const appAPI = makeWith(appState)(userLens(userMethods));
+ * 
+ * // Operations automatically work on the user slice
+ * const newAppState = appAPI.updateName("Alice").updateEmail("alice@example.com");
+ * // Full app state is updated, but methods only see/modify user slice
+ * 
+ * @example
+ * // Deeply nested lens with preferences
+ * const preferencesLens = createLens<AppState, AppState['user']['preferences']>(
+ *   state => state.user.preferences,
+ *   (state, prefs) => ({
+ *     ...state,
+ *     user: { ...state.user, preferences: prefs }
+ *   })
+ * );
+ * 
+ * const prefMethods = {
+ *   setTheme: (prefs, theme: string) => ({ ...prefs, theme }),
+ *   toggleNotifications: (prefs) => ({ ...prefs, notifications: !prefs.notifications }),
+ *   getTheme: (prefs) => prefs.theme
+ * };
+ * 
+ * const prefsAPI = makeWith(appState)(preferencesLens(prefMethods));
+ * const updated = prefsAPI.setTheme("dark").toggleNotifications();
+ * 
+ * @example
+ * // Chainable lens with makeChainable
+ * const chainableUserLens = createLens<AppState, AppState['user']>(
+ *   state => state.user,
+ *   (state, user) => ({ ...state, user })
+ * );
+ * 
+ * const chainableAPI = makeWith(appState)(
+ *   chainableUserLens(makeChainable({
+ *     setName: (user, name: string) => ({ ...user, name }),
+ *     setEmail: (user, email: string) => ({ ...user, email }),
+ *     clearEmail: (user) => ({ ...user, email: "" })
+ *   }))
+ * );
+ * 
+ * // Fluent chainable API that focuses on user slice
+ * const result = chainableAPI
+ *   .setName("Bob")
+ *   .setEmail("bob@example.com")
+ *   .clearEmail();
+ * 
+ * @example
+ * // Lens composition for complex state management
+ * interface BlogState {
+ *   posts: { id: string; title: string; content: string; author: string }[];
+ *   authors: { id: string; name: string; email: string }[];
+ *   currentPost: string | null;
+ * }
+ * 
+ * // Lens for posts array
+ * const postsLens = createLens<BlogState, BlogState['posts']>(
+ *   state => state.posts,
+ *   (state, posts) => ({ ...state, posts })
+ * );
+ * 
+ * // Lens for current post (returns single post or null)
+ * const currentPostLens = createLens<BlogState, BlogState['posts'][0] | null>(
+ *   state => state.currentPost ? state.posts.find(p => p.id === state.currentPost) || null : null,
+ *   (state, post) => post ? {
+ *     ...state,
+ *     posts: state.posts.map(p => p.id === post.id ? post : p)
+ *   } : state
+ * );
+ * 
+ * const blogAPI = makeLayered(blogState)
+ *   (postsLens({
+ *     addPost: (posts, post) => [...posts, { ...post, id: crypto.randomUUID() }],
+ *     removePost: (posts, id: string) => posts.filter(p => p.id !== id)
+ *   }))
+ *   (currentPostLens({
+ *     updateTitle: (post, title: string) => post ? { ...post, title } : null,
+ *     updateContent: (post, content: string) => post ? { ...post, content } : null
+ *   }))
+ *   ();
+ * 
+ * @example
+ * // Array lens for working with specific array elements
+ * const createArrayLens = <S, T>(
+ *   getter: (state: S) => T[],
+ *   setter: (state: S, array: T[]) => S,
+ *   index: number
+ * ) => createLens<S, T | undefined>(
+ *   state => getter(state)[index],
+ *   (state, item) => {
+ *     const array = getter(state);
+ *     if (item === undefined) return setter(state, array.filter((_, i) => i !== index));
+ *     const newArray = [...array];
+ *     newArray[index] = item;
+ *     return setter(state, newArray);
+ *   }
+ * );
+ * 
+ * // Focus on first post
+ * const firstPostLens = createArrayLens(
+ *   (state: BlogState) => state.posts,
+ *   (state, posts) => ({ ...state, posts }),
+ *   0
+ * );
+ * 
+ * const firstPostAPI = makeWith(blogState)(firstPostLens({
+ *   setTitle: (post, title: string) => post ? { ...post, title } : undefined,
+ *   getTitle: (post) => post?.title || 'No post'
+ * }));
+ */
+export function createLens<S extends object, T>(
+  getter: LensGetter<S, T>,
+  setter: LensSetter<S, T>
+): <M extends Record<string, (focused: T, ...args: any[]) => any>>(methods: M) => Methods<S> {
+  if (typeof getter !== 'function') {
+    throw createError('createLens', 'Getter must be a function');
+  }
+  
+  if (typeof setter !== 'function') {
+    throw createError('createLens', 'Setter must be a function');
+  }
+
+  return function <M extends Record<string, (focused: T, ...args: any[]) => any>>(methods: M): Methods<S> {
+    if (!methods || typeof methods !== 'object') {
+      throw createError('createLens', 'Methods must be a non-null object');
+    }
+
+    // Validate methods
+    try {
+      validateMethods(methods, 'createLens');
+    } catch (error) {
+      throw createError('createLens', 'Methods validation failed', error);
+    }
+
+    const focusedMethods: Methods<S> = {};
+    const isChainable = (methods as Record<string | symbol, unknown>)[IS_CHAINABLE] === true;
+
+    // Preserve chainable marker if present
+    if (isChainable) {
+      (focusedMethods as any)[IS_CHAINABLE] = true;
+    }
+
+    for (const [methodName, method] of Object.entries(methods)) {
+      if (methodName === IS_CHAINABLE.toString()) continue;
+
+      if (typeof method !== 'function') {
+        throw createError('createLens', `Method "${methodName}" must be a function`);
+      }
+
+      // Create the focused method
+      focusedMethods[methodName] = (fullState: S, ...args: unknown[]) => {
+        try {
+          // Extract the focused slice
+          const focusedState = getter(fullState);
+          
+          // Call the original method with the focused state
+          const result = method(focusedState, ...args);
+
+          // If the method is chainable and returns a new focused state
+          if (isChainable && result !== undefined && result !== null) {
+            // Update the full state with the new focused state
+            return setter(fullState, result as T);
+          }
+
+          // For non-chainable methods, return the result directly
+          return result;
+        } catch (error) {
+          throw createError('createLens', `Focused method "${methodName}" failed`, error);
+        }
+      };
+    }
+
+    return focusedMethods;
+  };
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+// Fallback Chain Primitives
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+
+/** Type for value validator function */
+type ValueValidator<T = any> = (value: T) => boolean;
+
+/** Type for fallback chain builder */
+type FallbackChainBuilder<T extends Record<string | symbol, any>> = {
+  (): T;
+  (fallbackObject: Partial<T>): FallbackChainBuilder<T>;
+};
+
+/** Default validator that checks for non-null, non-undefined values */
+const defaultValidator: ValueValidator = (value: any): boolean => {
+  return value !== null && value !== undefined;
+};
+
+/**
+ * Creates a fallback chain proxy that traverses multiple objects to find valid values.
+ * Uses a layered API similar to makeLayered for building fallback chains, with a final
+ * proxy that intelligently falls through objects until a valid value is found.
+ *
+ * @template T The type of the primary object and fallback objects.
+ * @param primaryObject The main object that will receive writes and be checked first for reads.
+ * @param validator Optional function to determine if a value is valid (defaults to non-null/undefined check).
+ * @returns A builder function for chaining fallback objects.
+ *
+ * @example
+ * // Basic fallback chain with default validator
+ * interface Config {
+ *   apiUrl?: string;
+ *   timeout?: number;
+ *   retries?: number;
+ *   debug?: boolean;
+ * }
+ * 
+ * const userConfig: Config = { apiUrl: "https://api.user.com" };
+ * const teamConfig: Config = { timeout: 5000, retries: 3 };
+ * const defaultConfig: Config = { 
+ *   apiUrl: "https://api.default.com", 
+ *   timeout: 10000, 
+ *   retries: 1, 
+ *   debug: false 
+ * };
+ * 
+ * const config = withFallback(userConfig)
+ *   (teamConfig)
+ *   (defaultConfig)
+ *   ();
+ * 
+ * console.log(config.apiUrl);    // "https://api.user.com" (from user)
+ * console.log(config.timeout);   // 5000 (from team)
+ * console.log(config.retries);   // 3 (from team)  
+ * console.log(config.debug);     // false (from default)
+ * 
+ * // Writes go to the primary object
+ * config.timeout = 15000;
+ * console.log(userConfig.timeout); // 15000
+ * 
+ * @example
+ * // Custom validator for non-empty strings
+ * const isNonEmptyString = (value: any): boolean => 
+ *   typeof value === 'string' && value.trim().length > 0;
+ * 
+ * const userPrefs = { name: "", theme: "dark" };
+ * const defaults = { name: "Anonymous", theme: "light", lang: "en" };
+ * 
+ * const prefs = withFallback(userPrefs, isNonEmptyString)
+ *   (defaults)
+ *   ();
+ * 
+ * console.log(prefs.name);   // "Anonymous" (user's empty string is invalid)
+ * console.log(prefs.theme);  // "dark" (user's value is valid)
+ * console.log(prefs.lang);   // "en" (only in defaults)
+ * 
+ * @example
+ * // Complex fallback chain with environment configuration
+ * interface AppConfig {
+ *   database: {
+ *     host?: string;
+ *     port?: number;
+ *     ssl?: boolean;
+ *   };
+ *   cache: {
+ *     enabled?: boolean;
+ *     ttl?: number;
+ *   };
+ *   features: {
+ *     auth?: boolean;
+ *     logging?: boolean;
+ *   };
+ * }
+ * 
+ * const envConfig: AppConfig = {
+ *   database: { host: process.env.DB_HOST },
+ *   cache: { enabled: true }
+ * };
+ * 
+ * const localConfig: AppConfig = {
+ *   database: { host: "localhost", port: 5432 },
+ *   features: { auth: true, logging: true }
+ * };
+ * 
+ * const prodDefaults: AppConfig = {
+ *   database: { host: "prod-db", port: 5432, ssl: true },
+ *   cache: { enabled: false, ttl: 3600 },
+ *   features: { auth: true, logging: false }
+ * };
+ * 
+ * const appConfig = withFallback(envConfig)
+ *   (localConfig)
+ *   (prodDefaults)
+ *   ();
+ * 
+ * // Nested property access works through the fallback chain
+ * console.log(appConfig.database.host);     // From env or local or prod
+ * console.log(appConfig.database.ssl);      // From prod (only defined there)
+ * console.log(appConfig.features.logging);  // From local (overrides prod)
+ * 
+ * @example
+ * // Validator for positive numbers
+ * const isPositiveNumber = (value: any): boolean => 
+ *   typeof value === 'number' && value > 0;
+ * 
+ * const userSettings = { volume: -1, brightness: 0.8 };
+ * const systemDefaults = { volume: 0.5, brightness: 1.0, contrast: 0.7 };
+ * 
+ * const settings = withFallback(userSettings, isPositiveNumber)
+ *   (systemDefaults)
+ *   ();
+ * 
+ * console.log(settings.volume);     // 0.5 (user's -1 is invalid)
+ * console.log(settings.brightness); // 0.8 (user's value is valid)
+ * console.log(settings.contrast);   // 0.7 (only in defaults)
+ * 
+ * @example
+ * // Dynamic fallback chain building
+ * const createConfigChain = (environment: 'dev' | 'staging' | 'prod') => {
+ *   const baseConfig = { app: 'MyApp', version: '1.0.0' };
+ *   const builder = withFallback(baseConfig);
+ *   
+ *   if (environment === 'dev') {
+ *     return builder
+ *       ({ debug: true, logging: 'verbose' })
+ *       ({ apiUrl: 'http://localhost:3000' })
+ *       ();
+ *   }
+ *   
+ *   if (environment === 'staging') {
+ *     return builder
+ *       ({ debug: false, logging: 'info' })
+ *       ({ apiUrl: 'https://staging-api.example.com' })
+ *       ();
+ *   }
+ *   
+ *   return builder
+ *     ({ debug: false, logging: 'error' })
+ *     ({ apiUrl: 'https://api.example.com' })
+ *     ();
+ * };
+ * 
+ * const devConfig = createConfigChain('dev');
+ * console.log(devConfig.debug);   // true
+ * console.log(devConfig.apiUrl);  // 'http://localhost:3000'
+ */
+export function withFallback<T extends Record<string | symbol, any>>(
+  primaryObject: T,
+  validator: ValueValidator = defaultValidator
+): FallbackChainBuilder<T> {
+  if (!primaryObject || typeof primaryObject !== 'object') {
+    throw createError('withFallback', 'Primary object must be a non-null object');
+  }
+
+  if (typeof validator !== 'function') {
+    throw createError('withFallback', 'Validator must be a function');
+  }
+
+  // Keep track of the fallback chain
+  const fallbackChain: Partial<T>[] = [];
+
+  function createBuilder(): FallbackChainBuilder<T> {
+    function builder(): T;
+    function builder(fallbackObject: Partial<T>): FallbackChainBuilder<T>;
+    function builder(fallbackObject?: Partial<T>): any {
+      if (fallbackObject === undefined) {
+        // Finalize and return the proxy
+        return createFallbackProxy(primaryObject, fallbackChain, validator);
+      }
+
+      if (!fallbackObject || typeof fallbackObject !== 'object') {
+        throw createError('withFallback', 'Fallback object must be a non-null object');
+      }
+
+      // Add to fallback chain and return new builder
+      fallbackChain.push(fallbackObject);
+      return createBuilder();
+    }
+
+    return builder;
+  }
+
+  return createBuilder();
+}
+
+/**
+ * Creates the actual proxy that implements the fallback traversal logic.
+ */
+function createFallbackProxy<T extends Record<string | symbol, any>>(
+  primaryObject: T,
+  fallbackChain: Partial<T>[],
+  validator: ValueValidator
+): T {
+  return new Proxy(primaryObject, {
+    get(target: T, prop: string | symbol): any {
+      // Handle special properties
+      if (typeof prop === 'symbol' || prop === 'constructor' || prop === 'toString' || prop === 'valueOf') {
+        return target[prop];
+      }
+
+      // Traverse the fallback chain to find a valid value
+      const objectsToCheck = [target, ...fallbackChain];
+      
+      for (const obj of objectsToCheck) {
+        if (obj && typeof obj === 'object' && prop in obj) {
+          const value = (obj as any)[prop];
+          
+          try {
+            if (validator(value)) {
+              // If the value is from a nested object, we need to create a nested proxy
+              if (value && typeof value === 'object' && !Array.isArray(value)) {
+                // Create nested fallback proxies for object values
+                const nestedFallbacks: any[] = [];
+                
+                // Collect corresponding nested objects from the fallback chain
+                for (const fallbackObj of fallbackChain) {
+                  if (fallbackObj && typeof fallbackObj === 'object' && prop in fallbackObj) {
+                    const nestedValue = (fallbackObj as any)[prop];
+                    if (nestedValue && typeof nestedValue === 'object' && !Array.isArray(nestedValue)) {
+                      nestedFallbacks.push(nestedValue);
+                    }
+                  }
+                }
+                
+                // Return a nested proxy if we have nested objects to fall back to
+                if (nestedFallbacks.length > 0) {
+                  return createFallbackProxy(value, nestedFallbacks, validator);
+                }
+              }
+              
+              return value;
+            }
+          } catch (error) {
+            // If validator throws, continue to next fallback
+            continue;
+          }
+        }
+      }
+
+      // No valid value found in the entire chain
+      return undefined;
+    },
+
+    set(target: T, prop: string | symbol, value: any): boolean {
+      // Always set on the primary object
+      try {
+        (target as any)[prop] = value;
+        return true;
+      } catch (error) {
+        return false;
+      }
+    },
+
+    has(target: T, prop: string | symbol): boolean {
+      // Check if property exists in any object in the chain
+      const objectsToCheck = [target, ...fallbackChain];
+      
+      for (const obj of objectsToCheck) {
+        if (obj && typeof obj === 'object' && prop in obj) {
+          return true;
+        }
+      }
+      
+      return false;
+    },
+
+    ownKeys(target: T): ArrayLike<string | symbol> {
+      // Collect all keys from all objects in the chain
+      const allKeys = new Set<string | symbol>();
+      const objectsToCheck = [target, ...fallbackChain];
+      
+      for (const obj of objectsToCheck) {
+        if (obj && typeof obj === 'object') {
+          // Get own enumerable property names
+          Object.getOwnPropertyNames(obj).forEach(key => allKeys.add(key));
+          // Get own symbol properties
+          Object.getOwnPropertySymbols(obj).forEach(symbol => allKeys.add(symbol));
+        }
+      }
+      
+      return Array.from(allKeys);
+    },
+
+    getOwnPropertyDescriptor(target: T, prop: string | symbol): PropertyDescriptor | undefined {
+      // Check primary object first
+      const primaryDesc = Object.getOwnPropertyDescriptor(target, prop);
+      if (primaryDesc) {
+        return primaryDesc;
+      }
+
+      // Check fallback chain
+      for (const obj of fallbackChain) {
+        if (obj && typeof obj === 'object') {
+          const desc = Object.getOwnPropertyDescriptor(obj, prop);
+          if (desc) {
+            // Return a descriptor that points to our proxy's get/set behavior
+            return {
+              configurable: true,
+              enumerable: desc.enumerable,
+              writable: true,
+              value: undefined // Will be overridden by the proxy get trap
+            };
+          }
+        }
+      }
+
+      return undefined;
+    },
+
+    deleteProperty(target: T, prop: string | symbol): boolean {
+      // Only delete from primary object
+      try {
+        delete (target as any)[prop];
+        return true;
+      } catch (error) {
+        return false;
+      }
+    },
+
+    defineProperty(target: T, prop: string | symbol, descriptor: PropertyDescriptor): boolean {
+      // Only define on primary object
+      try {
+        Object.defineProperty(target, prop, descriptor);
+        return true;
+      } catch (error) {
+        return false;
+      }
+    }
+  });
+}
+
 /**
  * An enhanced version of `makeWith` that automatically composes methods with the same name.
  * When multiple methods share a name, later methods receive previous methods as their last parameter.
@@ -1026,6 +2186,15 @@ export default {
   makeLayered,
   compose,
   merge,
+  createMerger,
+  getKeyDescriptions,
+  createProxy,
+  getSet,
+  ignoreCase,
+  noSpecialChars,
+  fallback,
+  createLens,
+  withFallback,
 };
 
 

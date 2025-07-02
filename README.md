@@ -318,9 +318,13 @@ For a comprehensive collection of examples demonstrating every feature of the li
 | `provide` | `_with` | **(Primitive)** Partially applies a subject to an array of functions. |
 | `collectFns`| `make` | **(Primitive)** Normalizes loose functions into a key-value object. |
 | `merge` | - | **(Primitive)** Merges multiple method objects with later objects taking precedence. |
+| `createMerger` | - | **(Primitive)** Creates type-safe, auto-curried merger with custom merge strategies and validation. |
+| `withFallback` | - | **(Primitive)** Creates intelligent fallback chains with custom validation and nested object support. |
 | `provideTo`|`makeWith` | **(Core)** Binds a subject to functions to create a basic API. |
 | `makeWithCompose`| - | **(Core)** Like `makeWith` but automatically composes methods with the same name. |
 | `makeChainable`| `rebind`| **(Core)** Marks methods for immutable, chainable behavior. |
+| `createProxy` | - | **(Core)** Creates dynamic APIs with ES6 Proxy that generate methods on-the-fly. |
+| `createLens` | - | **(Core)** Creates lenses that focus operations on specific slices of state. |
 | `compose` | - | **(Advanced)** Creates composable methods that can access previous methods with the same name. |
 | `makeLayered`| - | **(Advanced)** Creates a multi-layered, self-aware API using a fluent interface. |
 | `enrich` | - | **(Advanced)** Composes two dependent factory functions and merges their results. |
@@ -329,7 +333,17 @@ For a comprehensive collection of examples demonstrating every feature of the li
 
 **Named Imports (Recommended):**
 ```typescript
-import { makeWith, makeChainable, makeLayered, compose, merge } from '@doeixd/make-with';
+import { 
+  makeWith, 
+  makeChainable, 
+  makeLayered, 
+  compose, 
+  merge, 
+  createMerger, 
+  createProxy, 
+  createLens, 
+  withFallback 
+} from '@doeixd/make-with';
 ```
 
 **Default Import (All functions):**
@@ -423,6 +437,88 @@ const validation = { set: (s, v) => v >= 0 ? ({ value: v }) : s }; // Override s
 
 const allMethods = merge(baseMethods, extensions, validation);
 const api = makeWith({ value: 0 })(allMethods);
+```
+
+#### `createMerger`
+```typescript
+function createMerger<T>(mergeDefinition: MergeDefinition<T>): AutoCurriedMerger<T>
+function createMerger<T>(tupleDefinitions: TupleMergeDefinition<T>): AutoCurriedMerger<T>
+```
+**(Primitive)** Creates a type-safe, auto-curried merger function with custom merge strategies and comprehensive error handling. Supports both object-based and tuple-based merge definitions.
+
+**Example:**
+```typescript
+interface User {
+  name: string;
+  age: number;
+  tags: string[];
+}
+
+const userMerger = createMerger<User>({
+  name: (a, b, key) => a.name || b.name,
+  age: (a, b, key) => Math.max(a.age || 0, b.age || 0),
+  tags: (a, b, key) => [...(a.tags || []), ...(b.tags || [])]
+});
+
+const result = userMerger({ name: "Alice", age: 25, tags: ["admin"] }, { age: 30, tags: ["user"] });
+// Result: { success: true, data: { name: "Alice", age: 30, tags: ["admin", "user"] } }
+```
+
+#### `createProxy`
+```typescript
+function createProxy<S>(handler: ProxyHandler<S>): (initialState: S) => DynamicAPI<S>
+```
+**(Core)** Creates a dynamic API using ES6 Proxy that generates methods on-the-fly based on a handler function. Includes composable utility functions for common patterns.
+
+**Example:**
+```typescript
+interface User {
+  name: string;
+  age: number;
+  email: string;
+}
+
+// Basic usage with built-in getSet utility
+const userAPI = createProxy<User>(getSet)({ name: "Alice", age: 25, email: "alice@example.com" });
+
+const name = userAPI.getName();           // "Alice"
+const updated = userAPI.setAge(26);       // Returns new API with age: 26
+
+// Composable utilities
+const flexibleAPI = createProxy<User>(ignoreCase(noSpecialChars(getSet)))(userState);
+flexibleAPI.getName();     // Standard
+flexibleAPI.getname();     // Case insensitive
+flexibleAPI.get_name();    // Special chars stripped
+```
+
+#### `createLens`
+```typescript
+function createLens<S, T>(getter: (state: S) => T, setter: (state: S, focused: T) => S): LensFunction<S, T>
+```
+**(Core)** Creates a lens that focuses method operations on a specific slice of state. Enables building APIs that operate on nested state structures while maintaining type safety and immutability.
+
+**Example:**
+```typescript
+interface AppState {
+  user: { name: string; email: string };
+  posts: Post[];
+  ui: UIState;
+}
+
+// Create lens focused on user slice
+const userLens = createLens<AppState, AppState['user']>(
+  state => state.user,
+  (state, user) => ({ ...state, user })
+);
+
+const userMethods = makeChainable({
+  updateName: (user, name: string) => ({ ...user, name }),
+  updateEmail: (user, email: string) => ({ ...user, email })
+});
+
+// API operations automatically work on the user slice
+const appAPI = makeWith(appState)(userLens(userMethods));
+const newState = appAPI.updateName("Alice").updateEmail("alice@example.com");
 ```
 
 #### `makeWithCompose`
@@ -531,6 +627,94 @@ const createUser = (name: string) => ({ name, id: 1 });
 const addStatus = (user: { id: number }) => ({ status: 'active' });
 const createFullUser = enrich(createUser, addStatus);
 ```
+
+#### `withFallback`
+```typescript
+function withFallback<T>(primaryObject: T, validator?: ValueValidator): FallbackChainBuilder<T>
+```
+**(Primitive)** Creates a fallback chain proxy that traverses multiple objects to find valid values. Uses a layered API similar to `makeLayered` for building fallback chains.
+
+**Example:**
+```typescript
+const userConfig = { apiUrl: "https://api.user.com" };
+const defaults = { apiUrl: "https://default.com", timeout: 5000, debug: false };
+
+const config = withFallback(userConfig)(defaults)();
+console.log(config.apiUrl);   // "https://api.user.com" (from user)
+console.log(config.timeout);  // 5000 (from defaults)
+```
+
+### `withFallback` vs `Object.assign`
+
+When should you use `withFallback` versus `Object.assign`? Each has different trade-offs:
+
+#### **`Object.assign` - Static Merging**
+```typescript
+// Memory cost: creates new objects, copying all properties
+const merged = Object.assign({}, user, team, defaults);
+```
+
+**Pros:**
+- **Fast lookups** - Properties are directly accessible
+- **Memory efficient for access** - No proxy overhead
+- **Simple and familiar** - Standard JavaScript behavior
+- **Serializable** - Can be JSON.stringify'd directly
+
+**Cons:**
+- **Memory cost on creation** - Copies all properties from all objects
+- **No validation** - Invalid values override valid ones
+- **Shallow merge** - Nested objects are completely overwritten
+- **Static** - Values are fixed at merge time
+
+#### **`withFallback` - Dynamic Fallback**
+```typescript
+// Runtime cost: proxy traversal, but no memory copying
+const config = withFallback(user)(team)(defaults)();
+```
+
+**Pros:**
+- **Memory efficient for creation** - No copying, just references
+- **Validation support** - Skip invalid values with custom validators
+- **Deep fallback** - Nested objects preserve properties from multiple sources
+- **Dynamic** - Values can change in source objects
+- **Writes update source** - Modifications go to the primary object
+
+**Cons:**
+- **Runtime cost on access** - Proxy traversal on every property access
+- **More complex** - Additional cognitive overhead
+- **Not serializable** - Proxy objects need special handling for JSON
+
+#### **When to Use Which**
+
+**Use `Object.assign` when:**
+- Configuration is set once and accessed frequently
+- You need maximum lookup performance
+- Values are simple and don't need validation
+- You want standard JavaScript behavior
+- Memory usage during creation is not a concern
+
+**Use `withFallback` when:**
+- You need validation logic (non-empty strings, positive numbers, etc.)
+- Working with nested configuration objects
+- Source configurations might change after merging
+- Memory efficiency during creation is important
+- You want writes to update the primary object
+
+**Example Comparison:**
+```typescript
+// Object.assign - overwrites entire nested objects
+const assigned = Object.assign(
+  {},
+  { database: { host: "localhost", ssl: false } },
+  { database: { port: 5432 } }  // ssl: false is lost!
+);
+
+// withFallback - preserves properties from both objects
+const fallback = withFallback({ database: { host: "localhost", ssl: false } })
+  ({ database: { port: 5432 } })();
+// Result: { database: { host: "localhost", ssl: false, port: 5432 } }
+```
+
 <br />
 
 ## 🔄 Method Composition Patterns
