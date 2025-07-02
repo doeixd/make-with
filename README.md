@@ -337,7 +337,9 @@ const api = makeWithLib.makeWith(state)(makeWithLib.makeChainable(methods));
 
 ### API Reference
 
-#### `provide` (alias: `_with`)
+<br />
+
+#### provide (alias: `_with`)
 ```typescript
 function provide<S>(subject: S): <Fs extends ((subject: S, ...args: any[]) => any)[]>(
   ...fns: Fs
@@ -352,7 +354,9 @@ const [getUser] = provide({ token: 'abc' })(
 );
 ```
 
-#### `collectFns` (alias: `make`)
+<br />
+
+#### collectFns (alias: `make`)
 ```typescript
 function collectFns<F extends (...args: any[]) => any>(...fns: F[]): Record<string, F>;
 function collectFns<Obj extends Methods>(obj: Obj): Obj;
@@ -365,7 +369,9 @@ function greet(name: string) { /* ... */ }
 const api = collectFns(greet); // { greet: [Function: greet] }
 ```
 
-#### `provideTo` (alias: `makeWith`)
+<br />
+
+#### provideTo (alias: `makeWith`)
 ```typescript
 function provideTo<S extends object>(subject: S): <Fns extends Methods<S>>(
   functionsMap: Fns
@@ -379,8 +385,9 @@ const api = provideTo({ count: 0 })({
   get: (s) => s.count
 });
 ```
+<br />
 
-#### `makeChainable` (alias: `rebind`)
+#### makeChainable (alias: `rebind`)
 ```typescript
 function makeChainable<Obj extends Methods>(obj: Obj): Obj;
 ```
@@ -396,7 +403,9 @@ const counter = provideTo({ count: 0 })({
 const newCounter = counter.increment(); // Chainable!
 ```
 
-#### `makeLayered`
+<br />
+
+#### makeLayered (alias: `layer`)
 ```typescript
 function makeLayered<S extends object>(subject: S): LayeredApiBuilder<...>
 ```
@@ -424,7 +433,9 @@ const api = makeLayered({ items: [] })
 **Error Handling:**
 The library includes a custom `LayeredError` class for enhanced debugging and error tracking throughout the layered composition process.
 
-#### `enrich`
+<br />
+
+#### enrich
 ```typescript
 function enrich<P, S>(primaryFactory: P, secondaryFactory: S): FusedFunction
 ```
