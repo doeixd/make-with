@@ -10,8 +10,6 @@
 // A special symbol to identify objects of functions wrapped by `makeChainable`.
 const IS_CHAINABLE = Symbol("isChainable");
 
-// Debug flag for development environment
-const DEBUG = typeof process !== 'undefined' && process.env?.NODE_ENV === 'development';
 
 // Weak caches for performance optimization
 const API_CACHE = new WeakMap<object, WeakMap<object, any>>();
@@ -98,25 +96,16 @@ function isLayerFunction<T extends object>(
   return typeof value === 'function' && value.length === 1;
 }
 
+export class LayeredError extends Error {}
+
 /**
  * Creates a consistent error message format.
  */
 function createError(context: string, message: string, cause?: unknown): Error {
-  const error = new Error(`[${context}] ${message}`);
-  if (cause && DEBUG) {
-    console.error(`${context} error details:`, cause);
-  }
+  const error = new LayeredError(`[${context}] ${message}`, { cause });
   return error;
 }
 
-/**
- * Debug helper that logs API state in development.
- */
-function debugLog(context: string, data: any): void {
-  if (DEBUG) {
-    console.log(`[${context}]`, data);
-  }
-}
 
 /**
  * Creates a cached API instance to avoid recreating identical APIs.
@@ -181,8 +170,6 @@ export function _with<S>(subject: S) {
       }
     }
 
-    debugLog('_with', { subject, functionCount: fns.length });
-
     return fns.map(
       (fn, index) =>
         (...args: any[]) => {
@@ -232,7 +219,6 @@ export function make(...fnsOrObj: any[]): any {
     
     try {
       validateMethods(functionsMap, 'make');
-      debugLog('make', { type: 'object', keys: Object.keys(functionsMap) });
       return functionsMap;
     } catch (error) {
       throw createError('make', 'Object validation failed', error);
@@ -261,7 +247,6 @@ export function make(...fnsOrObj: any[]): any {
     functionsMap[fn.name] = fn;
   }
 
-  debugLog('make', { type: 'array', functionNames: Array.from(seenNames) });
   return functionsMap;
 }
 
@@ -293,10 +278,6 @@ export function rebind(...fnsOrObj: any[]): Record<string, any> {
   try {
     const originalFunctions = make(...fnsOrObj);
     (originalFunctions as any)[IS_CHAINABLE] = true;
-    
-    debugLog('rebind', { 
-      functions: Object.keys(originalFunctions).filter(k => k !== IS_CHAINABLE.toString()) 
-    });
     
     return originalFunctions;
   } catch (error) {
@@ -359,12 +340,6 @@ export function makeWith<S extends object>(subject: S) {
         const finalApi: Record<string, any> = {};
         const isChainable = (functionsMap as any)[IS_CHAINABLE];
         const methodNames = Object.keys(functionsMap).filter(k => k !== IS_CHAINABLE.toString());
-
-        debugLog('makeWith', { 
-          subjectType: subject.constructor.name,
-          isChainable,
-          methods: methodNames 
-        });
 
         for (const key of methodNames) {
           const fn = functionsMap[key];
@@ -485,11 +460,6 @@ export function enrich<
         );
       }
       
-      debugLog('enrich', { 
-        primaryKeys: Object.keys(primaryResult),
-        secondaryKeys: Object.keys(secondaryResult) 
-      });
-      
       return { ...primaryResult, ...secondaryResult } as ReturnType<P> & ReturnType<S>;
     } catch (error) {
       throw createError('enrich', 'Factory composition failed', error);
@@ -580,11 +550,6 @@ export function makeLayered<S extends object>(subject: S) {
       ): LayeredApiBuilder<CurrentApi> => {
         return (enhancerFnsOrLayerFn?: Methods<CurrentApi> | LayerFunction<CurrentApi>): any => {
           if (enhancerFnsOrLayerFn === undefined) {
-            debugLog('makeLayered', { 
-              finalized: true, 
-              totalLayers: layerCount,
-              finalMethods: Object.keys(currentInstance as object)
-            });
             return currentInstance;
           }
           
@@ -609,11 +574,6 @@ export function makeLayered<S extends object>(subject: S) {
                 );
               }
               
-              debugLog('makeLayered', { 
-                layerType: 'function', 
-                layerNumber: layerCount,
-                returnedMethods: Object.keys(enhancerFns)
-              });
             } else {
               if (!enhancerFnsOrLayerFn || typeof enhancerFnsOrLayerFn !== 'object') {
                 throw createError('makeLayered', 
@@ -622,12 +582,6 @@ export function makeLayered<S extends object>(subject: S) {
               }
               
               enhancerFns = enhancerFnsOrLayerFn;
-              
-              debugLog('makeLayered', { 
-                layerType: 'object', 
-                layerNumber: layerCount,
-                methods: Object.keys(enhancerFns)
-              });
             }
             
             // Validate the methods before binding
