@@ -317,8 +317,11 @@ For a comprehensive collection of examples demonstrating every feature of the li
 |---|---|---|
 | `provide` | `_with` | **(Primitive)** Partially applies a subject to an array of functions. |
 | `collectFns`| `make` | **(Primitive)** Normalizes loose functions into a key-value object. |
+| `merge` | - | **(Primitive)** Merges multiple method objects with later objects taking precedence. |
 | `provideTo`|`makeWith` | **(Core)** Binds a subject to functions to create a basic API. |
+| `makeWithCompose`| - | **(Core)** Like `makeWith` but automatically composes methods with the same name. |
 | `makeChainable`| `rebind`| **(Core)** Marks methods for immutable, chainable behavior. |
+| `compose` | - | **(Advanced)** Creates composable methods that can access previous methods with the same name. |
 | `makeLayered`| - | **(Advanced)** Creates a multi-layered, self-aware API using a fluent interface. |
 | `enrich` | - | **(Advanced)** Composes two dependent factory functions and merges their results. |
 
@@ -326,13 +329,16 @@ For a comprehensive collection of examples demonstrating every feature of the li
 
 **Named Imports (Recommended):**
 ```typescript
-import { makeWith, makeChainable, makeLayered } from '@doeixd/make-with';
+import { makeWith, makeChainable, makeLayered, compose, merge } from '@doeixd/make-with';
 ```
 
 **Default Import (All functions):**
 ```typescript
 import makeWithLib from '@doeixd/make-with';
-const api = makeWithLib.makeWith(state)(makeWithLib.makeChainable(methods));
+const api = makeWithLib.makeLayered(state)
+  (makeWithLib.makeChainable(methods))
+  (makeWithLib.compose(enhancedMethods))
+  ();
 ```
 
 ### API Reference
@@ -403,9 +409,87 @@ const counter = provideTo({ count: 0 })({
 const newCounter = counter.increment(); // Chainable!
 ```
 
+#### `merge`
+```typescript
+function merge<T extends Methods>(...objects: T[]): T;
+```
+**(Primitive)** Merges multiple method objects, with later objects taking precedence over earlier ones. Useful for combining base functionality with extensions.
+
+**Example:**
+```typescript
+const baseMethods = { get: (s) => s.value, set: (s, v) => ({ value: v }) };
+const extensions = { increment: (s) => ({ value: s.value + 1 }) };
+const validation = { set: (s, v) => v >= 0 ? ({ value: v }) : s }; // Override set
+
+const allMethods = merge(baseMethods, extensions, validation);
+const api = makeWith({ value: 0 })(allMethods);
+```
+
+#### `makeWithCompose`
+```typescript
+function makeWithCompose<S extends object>(subject: S): (...methodObjects: Methods<S>[]) => ChainableApi<any, S>;
+```
+**(Core)** Like `makeWith` but automatically composes methods with the same name. Later methods receive previous methods as their last parameter.
+
+**Example:**
+```typescript
+const api = makeWithCompose({ data: [] })(
+  { save: (s, item) => ({ data: [...s.data, item] }) },
+  { save: (s, item, prevSave) => prevSave(s, { ...item, timestamp: Date.now() }) },
+  { save: (s, item, prevSave) => {
+      if (!item.name) throw new Error('Name required');
+      return prevSave(s, item);
+    }
+  }
+);
+```
+
+#### `compose`
+```typescript
+function compose<T extends Record<string, any>>(methods: T): T & { [IS_COMPOSABLE]: true };
+```
+**(Advanced)** Creates composable methods that can access previous methods with the same name. Automatically handles both regular and chainable methods - the previous method always returns the appropriate result.
+
+**Regular Methods Example:**
+```typescript
+const api = makeLayered({ count: 0 })
+  ({ 
+    get: (s) => s.count,
+    increment: (s) => ({ count: s.count + 1 })
+  })
+  (compose({
+    get: (s, prevGet) => {
+      const value = prevGet(s); // Returns number
+      console.log('Current count:', value);
+      return value;
+    }
+  }))
+  ();
+```
+
+**Chainable Methods Example (Automatic Handling):**
+```typescript
+const api = makeLayered({ count: 0 })
+  (makeChainable({
+    increment: (s) => ({ count: s.count + 1 }),
+    add: (s, amount) => ({ count: s.count + amount })
+  }))
+  (compose({
+    increment: (s, prevIncrement) => {
+      console.log('Before:', s.count);
+      const newState = prevIncrement(s); // Always returns state object
+      console.log('After:', newState.count);
+      return newState; // Automatically becomes chainable
+    }
+  }))
+  ();
+
+// Usage: api.increment().add(5).increment() - all chainable!
+```
+
 <br />
 
-#### makeLayered (alias: `layer`)
+#### makeLayered
 ```typescript
 function makeLayered<S extends object>(subject: S): LayeredApiBuilder<...>
 ```
@@ -447,6 +531,219 @@ const createUser = (name: string) => ({ name, id: 1 });
 const addStatus = (user: { id: number }) => ({ status: 'active' });
 const createFullUser = enrich(createUser, addStatus);
 ```
+<br />
+
+## 🔄 Method Composition Patterns
+
+Make With provides powerful composition primitives that allow methods with the same name to work together instead of simply overriding each other.
+
+### The Unified `compose` Primitive
+
+The `compose` function creates methods that can access and enhance previous methods with the same name. It automatically handles both regular and chainable methods, making composition seamless regardless of the method type.
+
+```typescript
+// Adding logging to existing methods
+const api = makeLayered({ count: 0 })
+  (makeChainable({ 
+    increment: (s) => ({ count: s.count + 1 }),
+    decrement: (s) => ({ count: s.count - 1 })
+  }))
+  (compose({
+    increment: (s, prevIncrement) => {
+      console.log('Before increment:', s.count);
+      const result = prevIncrement(s);
+      console.log('After increment:', result.count);
+      return result;
+    },
+    decrement: (s, prevDecrement) => {
+      if (s.count <= 0) {
+        console.warn('Cannot decrement below zero');
+        return s;
+      }
+      return prevDecrement(s);
+    }
+  }))
+  ();
+```
+
+### Automatic Chainable Handling
+
+The `compose` primitive automatically detects chainable methods and extracts the underlying state:
+
+```typescript
+// Composing chainable methods with validation and logging
+const api = makeLayered({ count: 0, max: 100 })
+  (makeChainable({
+    increment: (s) => ({ ...s, count: s.count + 1 }),
+    add: (s, amount) => ({ ...s, count: s.count + amount }),
+    reset: (s) => ({ ...s, count: 0 })
+  }))
+  (compose({
+    increment: (s, prevIncrement) => {
+      if (s.count >= s.max) {
+        console.warn('Already at maximum value');
+        return s; // No change
+      }
+      console.log('Incrementing from', s.count);
+      return prevIncrement(s); // Returns state object automatically
+    },
+    add: (s, amount, prevAdd) => {
+      if (s.count + amount > s.max) {
+        console.warn(`Adding ${amount} would exceed maximum`);
+        return prevAdd(s, s.max - s.count); // Add only up to max
+      }
+      return prevAdd(s, amount);
+    }
+  }))
+  ();
+
+// All methods remain chainable:
+const result = api.add(50).increment().add(20); // Logs warnings and enforces limits
+```
+
+**How it works:**
+- `compose` automatically detects if previous methods return API instances or regular values
+- For chainable methods: extracts the state object, so `prevMethod(s)` returns state
+- For regular methods: returns the actual result value
+- Your composed method doesn't need to know the difference!
+
+### The `makeWithCompose` Auto-Composer
+
+For simpler cases, `makeWithCompose` automatically composes methods when names overlap:
+
+```typescript
+// Validation pipeline with automatic composition
+const userAPI = makeWithCompose({ users: [] })(
+  // Base save functionality
+  { save: (s, user) => ({ users: [...s.users, user] }) },
+  
+  // Add timestamp
+  { save: (s, user, prevSave) => prevSave(s, { ...user, createdAt: Date.now() }) },
+  
+  // Add validation
+  { save: (s, user, prevSave) => {
+      if (!user.email) throw new Error('Email is required');
+      if (!user.name) throw new Error('Name is required');
+      return prevSave(s, user);
+    }
+  },
+  
+  // Add ID generation
+  { save: (s, user, prevSave) => prevSave(s, { ...user, id: crypto.randomUUID() }) }
+);
+
+// All validations and transformations happen automatically
+const result = userAPI.save({ name: 'Alice', email: 'alice@example.com' });
+```
+
+### Common Composition Patterns
+
+#### 1. Before/After Hooks
+```typescript
+const withLogging = compose({
+  save: (s, data, prevSave) => {
+    console.log('Starting save operation...');
+    const result = prevSave(s, data);
+    console.log('Save completed successfully');
+    return result;
+  }
+});
+```
+
+#### 2. Error Handling Wrapper
+```typescript
+const withErrorHandling = compose({
+  process: (s, input, prevProcess) => {
+    try {
+      return prevProcess(s, input);
+    } catch (error) {
+      console.error('Processing failed:', error);
+      return s; // Fallback to current state
+    }
+  }
+});
+```
+
+#### 3. Caching Layer
+```typescript
+const withCaching = compose({
+  expensiveOperation: (s, key, prevOperation) => {
+    if (s.cache && s.cache[key]) {
+      return s.cache[key];
+    }
+    
+    const result = prevOperation(s, key);
+    return {
+      ...result,
+      cache: { ...s.cache, [key]: result }
+    };
+  }
+});
+```
+
+#### 4. Validation Pipeline
+```typescript
+const withValidation = compose({
+  update: (s, data, prevUpdate) => {
+    // Pre-validation
+    if (!data || typeof data !== 'object') {
+      throw new Error('Invalid data: must be an object');
+    }
+    
+    const result = prevUpdate(s, data);
+    
+    // Post-validation
+    if (!result.isValid) {
+      throw new Error('Update resulted in invalid state');
+    }
+    
+    return result;
+  }
+});
+```
+
+### Composition vs Inheritance
+
+Traditional OOP uses inheritance hierarchies that can become brittle:
+
+```typescript
+// ❌ Inheritance approach - rigid and hard to test
+class BaseUser extends User {
+  save() { /* base logic */ }
+}
+
+class ValidatedUser extends BaseUser {
+  save() { 
+    this.validate();
+    super.save(); // Tightly coupled to parent
+  }
+}
+
+class LoggedUser extends ValidatedUser {
+  save() {
+    this.log('saving...');
+    super.save(); // Long inheritance chain
+    this.log('saved');
+  }
+}
+```
+
+```typescript
+// ✅ Composition approach - flexible and testable
+const userAPI = makeLayered({ users: [] })
+  ({ save: (s, user) => ({ users: [...s.users, user] }) })      // Base
+  (compose({ save: (s, user, prev) => /* validation */ }))       // Validation
+  (compose({ save: (s, user, prev) => /* logging */ }))          // Logging
+  ();
+```
+
+**Benefits of Composition:**
+- **Flexible ordering** - Add layers in any order
+- **Independent testing** - Test each layer separately  
+- **Runtime composition** - Add/remove behaviors dynamically
+- **No inheritance chains** - Avoid brittle hierarchies
+- **Type safety** - Full TypeScript inference throughout
+
 <br />
 
 ## 🏷️ TypeScript Guide
@@ -845,6 +1142,54 @@ enrich(badPrimary, secondary);
 
 // ✅ Return objects from both factories
 const goodPrimary = (name) => ({ greeting: `Hello ${name}` });
+```
+
+#### 6. Composition Method Patterns
+
+**Understanding what `prevMethod` returns:**
+
+```typescript
+// ✅ Correct: compose automatically handles both types
+const api = makeLayered({ count: 0 })
+  (makeChainable({ increment: (s) => ({ count: s.count + 1 }) }))
+  ({ get: (s) => s.count })
+  (compose({
+    increment: (s, prevIncrement) => {
+      const newState = prevIncrement(s); // ✅ Always returns state object
+      return { count: newState.count + 1 }; // Clear state transformation
+    },
+    get: (s, prevGet) => {
+      const value = prevGet(s); // ✅ Returns the actual number
+      console.log('Current count:', value);
+      return value;
+    }
+  }))
+  ();
+```
+
+**Error:** `[compose] No previous method "methodName" found to compose with`
+```typescript
+// ❌ Trying to compose a method that doesn't exist in previous layers
+const api = makeLayered({ data: [] })
+  ({ save: (s, item) => ({ data: [...s.data, item] }) })
+  (compose({
+    delete: (s, id, prevDelete) => prevDelete(s, id) // ❌ No prevDelete method!
+  }))
+  ();
+
+// ✅ Only compose methods that exist in previous layers
+const api = makeLayered({ data: [] })
+  ({ 
+    save: (s, item) => ({ data: [...s.data, item] }),
+    delete: (s, id) => ({ data: s.data.filter(item => item.id !== id) })
+  })
+  (compose({
+    delete: (s, id, prevDelete) => {
+      console.log(`Deleting item ${id}`);
+      return prevDelete(s, id); // ✅ prevDelete exists
+    }
+  }))
+  ();
 ```
 
 ### Debugging Tips

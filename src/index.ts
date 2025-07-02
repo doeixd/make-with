@@ -20,35 +20,61 @@ const VALIDATION_CACHE = new WeakSet<object>();
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
 
 /** A utility type representing a collection of methods for a given subject. */
-type Methods<S = any> = Record<string, (subject: S, ...args: any[]) => any>;
+type Methods<S extends object = object> = Record<string, MethodFunction<S>>;
+
+/** A function that operates on a subject and returns some result. */
+type MethodFunction<S extends object> = (subject: S, ...args: readonly unknown[]) => unknown;
+
+/**
+ * Helper type to detect if a method return type should be treated as chainable.
+ * Chainable methods return exactly the subject type or an extension of it.
+ */
+type IsChainableReturn<R, S> = R extends S
+  ? S extends R
+  ? true  // Exact match - definitely chainable
+  : R extends S & infer _Ext
+  ? true  // Extended state - chainable
+  : false // Subtype but not extension - not chainable
+  : false;  // No relation - not chainable
 
 /**
  * The return type of a `provideTo` (`makeWith`) call. It correctly infers the
  * return types for both regular methods and those marked as chainable.
  */
-type ChainableApi<Fns extends Methods<S>, S> = {
-  [K in keyof Omit<Fns, typeof IS_CHAINABLE>]: Fns[K] extends (
+type ChainableApi<Fns extends Methods<S>, S extends object> = {
+  [K in keyof Fns as K extends typeof IS_CHAINABLE ? never : K]: Fns[K] extends (
     s: S,
     ...args: infer A
-  ) => S
-    ? (...args: A) => ChainableApi<Fns, S>
-    : Fns[K] extends (s: S, ...args: infer A) => infer R
-      ? (...args: A) => R
-      : never;
+  ) => infer R
+  ? IsChainableReturn<R, S> extends true
+  ? (...args: A) => ChainableApi<Fns, S>
+  : (...args: A) => R
+  : never;
 };
 
 /** A utility type that infers a simple, non-chainable API shape. Used by `makeLayered`. */
-type BoundApi<S, F extends Methods<S>> = {
+type BoundApi<S extends object, F extends Methods<S>> = {
   [K in keyof F]: F[K] extends (subject: S, ...args: infer A) => infer R
-    ? (...args: A) => R
-    : never;
+  ? (...args: A) => R
+  : never;
 };
 
 /** A function layer that receives the current API and returns methods to bind to it. */
 type LayerFunction<CurrentApi extends object> = (currentApi: CurrentApi) => Methods<CurrentApi>;
 
-/** Type guard to check if a value is a valid LayerFunction */
-type IsLayerFunction<T> = T extends (api: any) => Methods<any> ? true : false;
+
+
+/** 
+ * Symbol to mark objects as composable, similar to IS_CHAINABLE.
+ */
+const IS_COMPOSABLE = Symbol("isComposable");
+
+/**
+ * Symbol to store the underlying state in API instances for composition.
+ */
+const INTERNAL_STATE = Symbol("internalState");
+
+
 
 /** Enhanced LayeredApiBuilder type that supports both object and function layers. */
 type LayeredApiBuilder<CurrentApi extends object> = {
@@ -69,34 +95,39 @@ type LayeredApiBuilder<CurrentApi extends object> = {
  * Validates that all values in an object are functions.
  * Uses caching to avoid repeated validation of the same objects.
  */
-function validateMethods<T>(methods: Methods<T>, context: string): void {
+function validateMethods(methods: Record<string, unknown>, context: string): void {
   if (VALIDATION_CACHE.has(methods)) {
     return; // Already validated
   }
 
   for (const [key, value] of Object.entries(methods)) {
     if (key === IS_CHAINABLE.toString()) continue;
-    
+
     if (typeof value !== 'function') {
       throw new TypeError(
         `Invalid method "${key}" in ${context}: expected function, got ${typeof value}`
       );
     }
   }
-  
+
   VALIDATION_CACHE.add(methods);
 }
 
 /**
  * Type guard to check if a value is a LayerFunction.
+ * LayerFunctions take exactly one parameter (the current API) and return methods.
  */
 function isLayerFunction<T extends object>(
-  value: any
+  value: unknown
 ): value is LayerFunction<T> {
-  return typeof value === 'function' && value.length === 1;
+  if (typeof value !== 'function') return false;
+
+  // Check parameter count - LayerFunctions take exactly 1 parameter
+  // Handle rest parameters (length = 0) by also checking for single-param signatures
+  return value.length === 1 || (value.length === 0 && value.toString().includes('...'));
 }
 
-export class LayeredError extends Error {}
+export class LayeredError extends Error { }
 
 /**
  * Creates a consistent error message format.
@@ -111,16 +142,25 @@ function createError(context: string, message: string, cause?: unknown): Error {
  * Creates a cached API instance to avoid recreating identical APIs.
  */
 function getCachedApi<T>(subject: object, functionsMap: object, factory: () => T): T {
+  // Atomic cache operations to prevent race conditions
   let subjectCache = API_CACHE.get(subject);
   if (!subjectCache) {
-    subjectCache = new WeakMap();
-    API_CACHE.set(subject, subjectCache);
+    const newCache = new WeakMap();
+    // Check again in case another thread created it
+    subjectCache = API_CACHE.get(subject) || newCache;
+    if (subjectCache === newCache) {
+      API_CACHE.set(subject, subjectCache);
+    }
   }
 
   let cachedApi = subjectCache.get(functionsMap);
   if (!cachedApi) {
-    cachedApi = factory();
-    subjectCache.set(functionsMap, cachedApi);
+    const newApi = factory();
+    // Check again in case another thread created it
+    cachedApi = subjectCache.get(functionsMap) || newApi;
+    if (cachedApi === newApi) {
+      subjectCache.set(functionsMap, cachedApi);
+    }
   }
 
   return cachedApi;
@@ -156,10 +196,10 @@ export function _with<S>(subject: S) {
   return function <Fs extends ((subject: S, ...args: any[]) => any)[]>(
     ...fns: Fs
   ): {
-    [K in keyof Fs]: Fs[K] extends (subject: S, ...args: infer A) => infer R
+      [K in keyof Fs]: Fs[K] extends (subject: S, ...args: infer A) => infer R
       ? (...args: A) => R
       : never;
-  } {
+    } {
     if (fns.length === 0) {
       throw createError('_with', 'At least one function must be provided');
     }
@@ -216,7 +256,7 @@ export function make(...fnsOrObj: any[]): any {
     fnsOrObj[0] !== null
   ) {
     const functionsMap = fnsOrObj[0];
-    
+
     try {
       validateMethods(functionsMap, 'make');
       return functionsMap;
@@ -230,19 +270,19 @@ export function make(...fnsOrObj: any[]): any {
 
   for (let i = 0; i < fnsOrObj.length; i++) {
     const fn = fnsOrObj[i];
-    
+
     if (typeof fn !== "function") {
       throw createError('make', `Argument at index ${i} must be a function, got ${typeof fn}`);
     }
-    
+
     if (!fn.name || fn.name.trim() === '') {
       throw createError('make', `Function at index ${i} must have a non-empty name`);
     }
-    
+
     if (seenNames.has(fn.name)) {
       throw createError('make', `Duplicate function name "${fn.name}" found`);
     }
-    
+
     seenNames.add(fn.name);
     functionsMap[fn.name] = fn;
   }
@@ -278,7 +318,7 @@ export function rebind(...fnsOrObj: any[]): Record<string, any> {
   try {
     const originalFunctions = make(...fnsOrObj);
     (originalFunctions as any)[IS_CHAINABLE] = true;
-    
+
     return originalFunctions;
   } catch (error) {
     throw createError('rebind', 'Failed to create chainable functions', error);
@@ -336,9 +376,9 @@ export function makeWith<S extends object>(subject: S) {
     return getCachedApi(subject, functionsMap, () => {
       try {
         validateMethods(functionsMap, 'makeWith');
-        
-        const finalApi: Record<string, any> = {};
-        const isChainable = (functionsMap as any)[IS_CHAINABLE];
+
+        const finalApi: Record<string, unknown> = {};
+        const isChainable = (functionsMap as Record<string | symbol, unknown>)[IS_CHAINABLE];
         const methodNames = Object.keys(functionsMap).filter(k => k !== IS_CHAINABLE.toString());
 
         for (const key of methodNames) {
@@ -348,20 +388,20 @@ export function makeWith<S extends object>(subject: S) {
             finalApi[key] = (...args: any[]) => {
               try {
                 const newSubject = fn(subject, ...args);
-                
+
                 if (newSubject === undefined) {
-                  throw createError('makeWith', 
+                  throw createError('makeWith',
                     `Chainable method "${key}" returned undefined. Chainable methods must return a new state object.`
                   );
                 }
-                
+
                 if (newSubject === null || (typeof newSubject !== 'object')) {
                   throw createError('makeWith',
                     `Chainable method "${key}" returned ${newSubject === null ? 'null' : typeof newSubject}. Chainable methods must return a new state object.`
                   );
                 }
-                
-                return makeWith(newSubject)(functionsMap);
+
+                return makeWith(newSubject)(functionsMap as unknown as Methods<typeof newSubject>);
               } catch (error) {
                 throw createError('makeWith', `Chainable method "${key}" failed`, error);
               }
@@ -376,12 +416,242 @@ export function makeWith<S extends object>(subject: S) {
             };
           }
         }
-        
+
+        // Store the state in the API instance for composition access
+        (finalApi as Record<string | symbol, unknown>)[INTERNAL_STATE] = subject;
+
         return finalApi as ChainableApi<Fns, S>;
       } catch (error) {
         throw createError('makeWith', 'API creation failed', error);
       }
     });
+  };
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+// Composition Primitives
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+
+/**
+ * Creates a composable object where methods can access previous methods with the same name.
+ * Automatically handles both regular and chainable methods - the previous method always
+ * returns the appropriate result (state for chainable, actual result for regular).
+ *
+ * @template T The type of the composable methods object.
+ * @param methods An object where each method receives the previous method as its last parameter.
+ * @returns A marked object that can be used in `makeLayered` for composition.
+ *
+ * @example
+ * // Composing regular methods
+ * const api = makeLayered({ count: 0 })
+ *   ({ 
+ *     get: (s) => s.count,
+ *     increment: (s) => ({ count: s.count + 1 })
+ *   })
+ *   (compose({
+ *     get: (s, prevGet) => {
+ *       const value = prevGet(s); // Returns number
+ *       console.log('Current count:', value);
+ *       return value;
+ *     }
+ *   }))
+ *   ();
+ *
+ * @example
+ * // Composing chainable methods (automatically handled)
+ * const api = makeLayered({ count: 0 })
+ *   (makeChainable({
+ *     increment: (s) => ({ count: s.count + 1 }),
+ *     add: (s, amount) => ({ count: s.count + amount })
+ *   }))
+ *   (compose({
+ *     increment: (s, prevIncrement) => {
+ *       console.log('Before increment:', s.count);
+ *       const newState = prevIncrement(s); // Always returns state object
+ *       console.log('After increment:', newState.count);
+ *       return newState; // Returns state, becomes chainable automatically
+ *     },
+ *     add: (s, amount, prevAdd) => {
+ *       if (amount < 0) {
+ *         console.warn('Adding negative amount:', amount);
+ *         amount = Math.abs(amount);
+ *       }
+ *       return prevAdd(s, amount); // Returns state object
+ *     }
+ *   }))
+ *   ();
+ *
+ * @example
+ * // Mixed composition - some methods chainable, some not
+ * const userAPI = makeLayered({ users: [], count: 0 })
+ *   (makeChainable({
+ *     addUser: (s, user) => ({ ...s, users: [...s.users, user] })
+ *   }))
+ *   ({ 
+ *     getUserCount: (s) => s.users.length,
+ *     validateUser: (s, user) => user.name && user.email
+ *   })
+ *   (compose({
+ *     addUser: (s, user, prevAdd) => {
+ *       if (!s.validateUser(user)) throw new Error('Invalid user');
+ *       return prevAdd(s, { ...user, id: crypto.randomUUID() }); // Returns state
+ *     },
+ *     getUserCount: (s, prevGetCount) => {
+ *       const count = prevGetCount(s); // Returns number
+ *       console.log(`Total users: ${count}`);
+ *       return count;
+ *     }
+ *   }))
+ *   ();
+ */
+export function compose<T extends Record<string, MethodFunction<any>>>(
+  methods: T
+): T & { [IS_COMPOSABLE]: true } {
+  if (!methods || typeof methods !== 'object') {
+    throw createError('compose', 'Methods must be a non-null object');
+  }
+
+  // Validate that all properties are functions
+  for (const [key, value] of Object.entries(methods)) {
+    if (typeof value !== 'function') {
+      throw createError('compose', `Method "${key}" must be a function, got ${typeof value}`);
+    }
+  }
+
+  // Mark the object as composable
+  return Object.assign(methods, { [IS_COMPOSABLE]: true as const });
+}
+
+
+
+/**
+ * Creates a function that can merge multiple method objects, with later objects
+ * taking precedence over earlier ones. Useful for combining base functionality.
+ *
+ * @template T The type of method objects to merge.
+ * @param objects Method objects to merge, in order of precedence (later objects override earlier).
+ * @returns A single merged object containing all methods.
+ *
+ * @example
+ * // Merge base methods with extensions
+ * const baseMethods = { get: (s) => s.value, set: (s, v) => ({ value: v }) };
+ * const extensions = { increment: (s) => ({ value: s.value + 1 }) };
+ * const validation = { set: (s, v) => v >= 0 ? ({ value: v }) : s }; // Override set
+ *
+ * const allMethods = merge(baseMethods, extensions, validation);
+ * const api = makeWith({ value: 0 })(allMethods);
+ *
+ * @example
+ * // Conditional merging
+ * const createAPI = (withAdmin = false) => {
+ *   const base = { getUser: (s, id) => s.users[id] };
+ *   const admin = withAdmin ? { deleteUser: (s, id) => ({ users: s.users.filter(u => u.id !== id) }) } : {};
+ *   return makeWith(initialState)(merge(base, admin));
+ * };
+ */
+export function merge<T extends Methods>(...objects: T[]): T {
+  if (objects.length === 0) {
+    throw createError('merge', 'At least one object must be provided');
+  }
+
+  for (let i = 0; i < objects.length; i++) {
+    const obj = objects[i];
+    if (!obj || typeof obj !== 'object') {
+      throw createError('merge', `Argument at index ${i} must be a non-null object`);
+    }
+
+    // Validate methods in each object
+    try {
+      validateMethods(obj, `merge argument ${i}`);
+    } catch (error) {
+      throw createError('merge', `Object at index ${i} validation failed`, error);
+    }
+  }
+
+  return Object.assign({}, ...objects);
+}
+
+/**
+ * An enhanced version of `makeWith` that automatically composes methods with the same name.
+ * When multiple methods share a name, later methods receive previous methods as their last parameter.
+ *
+ * @template S The type of the subject/state object.
+ * @param subject The state object to bind methods to.
+ * @returns A curried function that takes method objects and composes overlapping method names.
+ *
+ * @example
+ * // Automatic composition of save methods
+ * const api = makeWithCompose({ data: [] })({
+ *   save: (s, item) => ({ data: [...s.data, item] }),
+ *   save: (s, item, prevSave) => {
+ *     console.log('Saving item:', item);
+ *     const result = prevSave(s, item);
+ *     console.log('Item saved successfully');
+ *     return result;
+ *   }
+ * });
+ *
+ * @example  
+ * // Composing with multiple method objects
+ * const userAPI = makeWithCompose({ users: [] })(
+ *   { save: (s, user) => ({ users: [...s.users, user] }) },
+ *   { save: (s, user, prevSave) => prevSave(s, { ...user, timestamp: Date.now() }) },
+ *   { save: (s, user, prevSave) => {
+ *       if (!user.email) throw new Error('Email required');
+ *       return prevSave(s, user);
+ *     }
+ *   }
+ * );
+ */
+export function makeWithCompose<S extends object>(subject: S) {
+  if (subject === null || subject === undefined) {
+    throw createError('makeWithCompose', 'Subject cannot be null or undefined');
+  }
+
+  if (typeof subject !== 'object') {
+    throw createError('makeWithCompose', `Subject must be an object, got ${typeof subject}`);
+  }
+
+  return function (...methodObjects: Methods<S>[]): ChainableApi<any, S> {
+    if (methodObjects.length === 0) {
+      throw createError('makeWithCompose', 'At least one method object must be provided');
+    }
+
+    // Merge all method objects with composition for duplicate names
+    const composedMethods: Methods<S> = {};
+
+    for (const methodObj of methodObjects) {
+      if (!methodObj || typeof methodObj !== 'object') {
+        throw createError('makeWithCompose', 'All arguments must be non-null objects');
+      }
+
+      for (const [key, method] of Object.entries(methodObj)) {
+        if (key === IS_CHAINABLE.toString()) {
+          // Preserve chainable markers - if any object has chainable methods, preserve it
+          (composedMethods as any)[key] = method;
+          continue;
+        }
+
+        if (typeof method !== 'function') {
+          throw createError('makeWithCompose', `Method "${key}" must be a function`);
+        }
+
+        const existingMethod = composedMethods[key];
+
+        if (existingMethod) {
+          // Compose with existing method
+          composedMethods[key] = (s: S, ...args: any[]) => {
+            return method(s, ...args, existingMethod);
+          };
+        } else {
+          // First method with this name
+          composedMethods[key] = method;
+        }
+      }
+    }
+
+    // Use regular makeWith with the composed methods
+    return makeWith(subject)(composedMethods);
   };
 }
 
@@ -437,7 +707,7 @@ export function enrich<
   if (typeof primaryFactory !== 'function') {
     throw createError('enrich', 'Primary factory must be a function');
   }
-  
+
   if (typeof secondaryFactory !== 'function') {
     throw createError('enrich', 'Secondary factory must be a function');
   }
@@ -445,21 +715,21 @@ export function enrich<
   return function (...args: Parameters<P>) {
     try {
       const primaryResult = primaryFactory(...args) as ReturnType<P>;
-      
+
       if (!primaryResult || typeof primaryResult !== 'object') {
-        throw createError('enrich', 
+        throw createError('enrich',
           `Primary factory must return an object, got ${typeof primaryResult}`
         );
       }
-      
+
       const secondaryResult = secondaryFactory(primaryResult);
-      
+
       if (!secondaryResult || typeof secondaryResult !== 'object') {
-        throw createError('enrich', 
+        throw createError('enrich',
           `Secondary factory must return an object, got ${typeof secondaryResult}`
         );
       }
-      
+
       return { ...primaryResult, ...secondaryResult } as ReturnType<P> & ReturnType<S>;
     } catch (error) {
       throw createError('enrich', 'Factory composition failed', error);
@@ -552,58 +822,117 @@ export function makeLayered<S extends object>(subject: S) {
           if (enhancerFnsOrLayerFn === undefined) {
             return currentInstance;
           }
-          
+
           layerCount++;
-          
+
           try {
             let enhancerFns: Methods<CurrentApi>;
-            
+
             // Type-safe function layer detection
             if (typeof enhancerFnsOrLayerFn === 'function') {
               if (!isLayerFunction(enhancerFnsOrLayerFn)) {
-                throw createError('makeLayered', 
+                throw createError('makeLayered',
                   `Layer function must accept exactly one parameter (the current API), got function with ${enhancerFnsOrLayerFn.length} parameters`
                 );
               }
-              
+
               enhancerFns = enhancerFnsOrLayerFn(currentInstance);
-              
+
               if (!enhancerFns || typeof enhancerFns !== 'object') {
-                throw createError('makeLayered', 
+                throw createError('makeLayered',
                   `Layer function must return an object of methods, got ${typeof enhancerFns}`
                 );
               }
-              
+
             } else {
               if (!enhancerFnsOrLayerFn || typeof enhancerFnsOrLayerFn !== 'object') {
-                throw createError('makeLayered', 
+                throw createError('makeLayered',
                   'Layer must be either a function or an object of methods'
                 );
               }
-              
+
               enhancerFns = enhancerFnsOrLayerFn;
             }
-            
+
             // Validate the methods before binding
             validateMethods(enhancerFns, `makeLayered layer ${layerCount}`);
-            
-            // Bind the enhancer methods to the current instance
-            const nextLayer = provideTo(currentInstance)(enhancerFns);
-            
+
+            // Check if this is a composable layer
+            const isComposable = (enhancerFns as Record<string | symbol, unknown>)[IS_COMPOSABLE] === true;
+
+            let nextLayer: Record<string, MethodFunction<CurrentApi>>;
+
+            if (isComposable) {
+              // Handle composition - methods get access to previous methods
+              nextLayer = {};
+
+              for (const [key, newMethod] of Object.entries(enhancerFns)) {
+                if (key === IS_COMPOSABLE.toString()) continue;
+
+                const fn = newMethod as Function;
+                const previousMethod = (currentInstance as Record<string, unknown>)[key] as MethodFunction<CurrentApi> | undefined;
+
+                if (previousMethod && typeof previousMethod === 'function') {
+                  // Compose: provide previous method as last parameter, bound to current instance
+                  nextLayer[key] = (...args: readonly unknown[]) => {
+                    // Create a smart previous method that automatically handles chainable vs regular returns
+                    const smartPreviousMethod = (...methodArgs: unknown[]) => {
+                      const result = previousMethod(currentInstance, ...methodArgs);
+
+                      // If the result looks like an API instance (has methods and internal state),
+                      // extract the state for composition
+                      if (result && typeof result === 'object' &&
+                        Object.prototype.hasOwnProperty.call(result, INTERNAL_STATE)) {
+                        return (result as any)[INTERNAL_STATE];
+                      }
+
+                      // Otherwise return the result as-is (regular method return)
+                      return result;
+                    };
+
+                    // Call the composed method with subject and smart previous method
+                    try {
+                      return fn(currentInstance, ...(args as unknown[]), smartPreviousMethod);
+                    } catch (error) {
+                      throw createError('compose', `Composed method "${key}" failed during execution`, error);
+                    }
+                  };
+                } else {
+                  // No previous method, provide a method that throws when called
+                  nextLayer[key] = (...args: readonly unknown[]) => {
+                    const noPreviousMethod = () => {
+                      throw createError('compose', `No previous method "${key}" found to compose with`);
+                    };
+                    try {
+                      return fn(currentInstance, ...(args as unknown[]), noPreviousMethod);
+                    } catch (error) {
+                      throw createError('compose', `Composed method "${key}" failed during execution`, error);
+                    }
+                  };
+                }
+              }
+
+              // Use regular binding for the composed layer
+              nextLayer = provideTo(currentInstance)(nextLayer);
+            } else {
+              // Regular binding
+              nextLayer = provideTo(currentInstance)(enhancerFns);
+            }
+
             // Create new instance with spread to avoid mutations
             const newInstance = Object.assign(
               Object.create(Object.getPrototypeOf(currentInstance)),
               currentInstance,
               nextLayer
             );
-            
+
             return createNextLayer(newInstance);
           } catch (error) {
             throw createError('makeLayered', `Layer ${layerCount} creation failed`, error);
           }
         };
       };
-      
+
       return createNextLayer(baseInstance);
     } catch (error) {
       throw createError('makeLayered', 'Layered API initialization failed', error);
@@ -689,9 +1018,34 @@ export default {
   make,
   collectFns,
   makeWith,
+  makeWithCompose,
   provideTo,
   rebind,
   makeChainable,
   enrich,
   makeLayered,
+  compose,
+  merge,
+};
+
+
+/** Type guard to check if a value is a valid LayerFunction */
+export type IsLayerFunction<T> = T extends (api: any) => Methods<any> ? true : false;
+
+/** 
+ * A method that can compose with a previous method of the same name.
+ * The previous method is provided as the last parameter.
+ */
+export type ComposableMethod<S, Args extends any[], R, PrevR = R> = (
+  subject: S,
+  ...args: [...Args, (subject: S, ...args: Args) => PrevR]
+) => R;
+
+/** 
+ * A collection of composable methods where each can access the previous method.
+ */
+export type ComposableMethods<S extends object, PrevMethods extends Methods<S> = {}> = {
+  [K in keyof PrevMethods]?: PrevMethods[K] extends (s: S, ...args: infer A) => infer R
+  ? ComposableMethod<S, A, R, R>
+  : never;
 };
