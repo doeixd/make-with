@@ -317,7 +317,7 @@ For a comprehensive collection of examples demonstrating every feature of the li
 |---|---|---|
 | `provide` | `_with` | **(Primitive)** Partially applies a subject to an array of functions. |
 | `collectFns`| `make` | **(Primitive)** Normalizes loose functions into a key-value object. |
-| `merge` | - | **(Primitive)** Merges multiple method objects with later objects taking precedence. |
+| `merge` | - | **(Primitive)** Merges multiple method objects with later objects taking precedence. Now supports curried usage for functional composition patterns. |
 | `createMerger` | - | **(Primitive)** Creates type-safe, auto-curried merger with custom merge strategies and validation. |
 | `withFallback` | - | **(Primitive)** Creates intelligent fallback chains with custom validation and nested object support. |
 | `provideTo`|`makeWith` | **(Core)** Binds a subject to functions to create a basic API. |
@@ -426,10 +426,11 @@ const newCounter = counter.increment(); // Chainable!
 #### `merge`
 ```typescript
 function merge<T extends Methods>(...objects: T[]): T;
+function merge<T extends Methods>(firstObject: T): <U extends Methods>(...additionalObjects: U[]) => T & U;
 ```
-**(Primitive)** Merges multiple method objects, with later objects taking precedence over earlier ones. Useful for combining base functionality with extensions.
+**(Primitive)** Merges multiple method objects with later objects taking precedence, or creates a curried merger function for partial application. This enhanced version supports both immediate merging and functional composition patterns.
 
-**Example:**
+**Direct Merging (Original Behavior):**
 ```typescript
 const baseMethods = { get: (s) => s.value, set: (s, v) => ({ value: v }) };
 const extensions = { increment: (s) => ({ value: s.value + 1 }) };
@@ -437,6 +438,40 @@ const validation = { set: (s, v) => v >= 0 ? ({ value: v }) : s }; // Override s
 
 const allMethods = merge(baseMethods, extensions, validation);
 const api = makeWith({ value: 0 })(allMethods);
+```
+
+**Curried Usage for Extension Patterns:**
+```typescript
+// Create reusable extensions
+const addDefaults = merge({ role: 'user', active: true });
+const withAuth = merge({ isAuthenticated: (s) => !!s.token });
+
+// Compose extensions functionally
+const userMethods = addDefaults(withAuth({ login: (s, token) => ({ ...s, token }) }));
+
+// Build reusable method enhancers
+const withTimestamp = merge({
+  addTimestamp: (s) => ({ ...s, createdAt: Date.now() }),
+  updateTimestamp: (s) => ({ ...s, updatedAt: Date.now() })
+});
+
+const withValidation = merge({
+  validate: (s, rules) => rules.every(rule => rule(s))
+});
+
+// Chain extensions functionally
+const enhancedAPI = makeWith(initialState)(
+  withValidation(withTimestamp(baseMethods))
+);
+```
+
+**Conditional Merging:**
+```typescript
+const createUserAPI = (isAdmin: boolean) => {
+  const base = { getProfile: (s) => s.profile };
+  const adminMethods = isAdmin ? { deleteUser: (s, id) => ({ ...s, deleted: [...s.deleted, id] }) } : {};
+  return makeWith(initialState)(merge(base)(adminMethods));
+};
 ```
 
 #### `createMerger`
