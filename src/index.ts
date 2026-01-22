@@ -1236,6 +1236,289 @@ export function createProxy<S extends Record<string | symbol, any>>(
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+// High-Order Handler Primitives
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+
+/**
+ * Definition of hooks available to enhance a proxy handler.
+ */
+type HandlerHooks<S> = {
+  /**
+   * Called before the base handler. 
+   * Return `false` to cancel execution (returns undefined).
+   * Return `true` to proceed.
+   */
+  shouldExecute?: (state: S, method: string | symbol, args: unknown[]) => boolean;
+  
+  /**
+   * Transforms arguments before passing them to the base handler.
+   */
+  transformArgs?: (state: S, method: string | symbol, args: unknown[]) => unknown[];
+  
+  /**
+   * Called after the base handler returns successfully.
+   * Can be used to transform the result or perform side effects (logging).
+   */
+  onSuccess?: (result: any, state: S, method: string | symbol, args: unknown[]) => any;
+  
+  /**
+   * Called if the base handler throws an error.
+   * Return a value to recover, or re-throw the error.
+   */
+  onError?: (error: unknown, state: S, method: string | symbol, args: unknown[]) => any;
+};
+
+/**
+ * Wraps an existing proxy handler with lifecycle hooks (Middleware pattern).
+ * This allows you to add logging, validation, timing, or error handling to
+ * any handler (including getSet or fuzzyMatch).
+ *
+ * @template S The type of the state object.
+ * @param baseHandler The original handler to wrap.
+ * @param hooks The lifecycle hooks to apply.
+ * @returns A new, enhanced handler function.
+ * 
+ * @example
+ * // Add logging to the built-in getSet handler
+ * const loggedHandler = enhanceHandler(getSet, {
+ *   onSuccess: (result, state, method, args) => {
+ *     console.log(`Called ${String(method)} with`, args);
+ *     return result;
+ *   }
+ * });
+ * 
+ * const api = createProxy(loggedHandler)(initialState);
+ */
+export function enhanceHandler<S extends Record<string | symbol, any>>(
+  baseHandler: ProxyHandler<S>,
+  hooks: HandlerHooks<S>
+): ProxyHandler<S> {
+  return function (state: S, methodName: string | symbol, ...originalArgs: unknown[]) {
+    
+    // 1. Validation / Predicate
+    if (hooks.shouldExecute) {
+      const shouldRun = hooks.shouldExecute(state, methodName, originalArgs);
+      if (shouldRun === false) {
+        return undefined; // Treats method as "not found/not supported"
+      }
+    }
+
+    // 2. Argument Transformation
+    let args = originalArgs;
+    if (hooks.transformArgs) {
+      args = hooks.transformArgs(state, methodName, originalArgs);
+      if (!Array.isArray(args)) {
+        // Safety check
+        args = [args]; 
+      }
+    }
+
+    try {
+      // 3. Execution
+      const result = baseHandler(state, methodName, ...args);
+
+      // 4. Result Transformation / Side Effects
+      if (hooks.onSuccess) {
+        return hooks.onSuccess(result, state, methodName, args);
+      }
+
+      return result;
+    } catch (error) {
+      // 5. Error Recovery
+      if (hooks.onError) {
+        return hooks.onError(error, state, methodName, args);
+      }
+      throw error;
+    }
+  };
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+// Fuzzy Matching Primitives
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+
+/**
+ * Calculates the Levenshtein edit distance between two strings.
+ * This measures how many single-character edits (insertions, deletions, substitutions)
+ * are required to change one word into the other.
+ */
+function getLevenshteinDistance(a: string, b: string): number {
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+
+  const matrix = [];
+
+  // Increment along the first column of each row
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i];
+  }
+
+  // Increment each column in the first row
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j;
+  }
+
+  // Fill in the rest of the matrix
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1, // substitution
+          Math.min(
+            matrix[i][j - 1] + 1,   // insertion
+            matrix[i - 1][j] + 1    // deletion
+          )
+        );
+      }
+    }
+  }
+
+  return matrix[b.length][a.length];
+}
+
+/**
+ * Configuration options for the fuzzy matching handler.
+ */
+type FuzzyOptions = {
+  /** Maximum edit distance allowed (default: 2) */
+  threshold?: number;
+  /** Whether to log a warning when a fuzzy match is used (default: true) */
+  warn?: boolean;
+  /** A fallback handler to use if no fuzzy match is found */
+  fallback?: (state: any, method: string | symbol, ...args: any[]) => any;
+};
+
+/**
+ * Creates a proxy handler that tolerates typos in method names.
+ * It calculates the Levenshtein distance between the requested method and the
+ * available keys on the state object.
+ * 
+ * @param options Configuration for sensitivity and debugging
+ * @returns A handler function compatible with createProxy
+ * 
+ * @example
+ * const api = createProxy(fuzzyMatch({ threshold: 2 }))({ 
+ *   processData: (s) => "Processing..." 
+ * });
+ * 
+ * // Typo tolerance:
+ * api.processDta(); // Works! Logs: "Fuzzy matched 'processDta' to 'processData'"
+ * api.procssData(); // Works!
+ */
+export function fuzzyMatch<S extends Record<string | symbol, any>>(
+  options: FuzzyOptions = {}
+) {
+  const { 
+    threshold = 2, 
+    warn = true, 
+    fallback 
+  } = options;
+
+  return function (state: S, methodName: string | symbol, ...args: unknown[]) {
+    // 1. Exact Match: If it exists, run it immediately.
+    if (methodName in state) {
+      const val = state[methodName as keyof S];
+      return typeof val === 'function' ? val(state, ...args) : val;
+    }
+
+    // Symbols cannot be fuzzy matched
+    if (typeof methodName === 'symbol') {
+      return fallback ? fallback(state, methodName, ...args) : undefined;
+    }
+
+    // 2. Fuzzy Search
+    const keys = Object.keys(state);
+    let bestMatch: string | null = null;
+    let minDistance = Infinity;
+
+    for (const key of keys) {
+      const dist = getLevenshteinDistance(methodName, key);
+      
+      // We want the smallest distance that is within the threshold
+      if (dist <= threshold && dist < minDistance) {
+        minDistance = dist;
+        bestMatch = key;
+      }
+    }
+
+    // 3. Execution or Fallback
+    if (bestMatch) {
+      if (warn) {
+        console.warn(`[FuzzyMatch] Method "${methodName}" not found. Executing closest match: "${bestMatch}"`);
+      }
+      
+      const match = state[bestMatch as keyof S];
+      
+      // Handle both values (getters) and functions
+      if (typeof match === 'function') {
+        return match(state, ...args);
+      }
+      return match;
+    }
+
+    // 4. No match found, try fallback or return undefined
+    return fallback ? fallback(state, methodName, ...args) : undefined;
+  };
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+// Middleware Composition Primitives
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+
+/**
+ * A Higher-Order Handler (Middleware).
+ * It expects a 'next' handler and returns a new handler.
+ */
+type Middleware<S> = (next: ProxyHandler<S>) => ProxyHandler<S>;
+
+/**
+ * "Lowers" a generic Middleware into a concrete Handler that can be passed
+ * directly to createProxy.
+ * 
+ * It does this by automatically plugging in a "Base Handler" (defaults to getSet)
+ * to serve as the final link in the chain.
+ *
+ * @template S The type of the state object.
+ * @param middleware The higher-order function to lower.
+ * @param base The handler to use at the end of the chain (defaults to getSet).
+ * @returns A direct ProxyHandler ready for createProxy.
+ *
+ * @example
+ * // Assume 'withLogging' is a Middleware: (next) => (s, m, a) => ...
+ * 
+ * // ❌ Error: createProxy expects (state, method, args), not (next)
+ * // const api = createProxy(withLogging)(state); 
+ * 
+ * // ✅ Correct: 'applyBase' plugs in 'getSet' automatically
+ * const handler = applyBase(withLogging);
+ * const api = createProxy(handler)(state);
+ */
+export function applyBase<S extends Record<string | symbol, any>>(
+  middleware: Middleware<S>,
+  base: ProxyHandler<S> = getSet
+): ProxyHandler<S> {
+  return middleware(base);
+}
+
+/**
+ * Composes multiple Middleware functions into a single Middleware.
+ * This runs them from left-to-right (outer-to-inner).
+ *
+ * @param middlewares A list of middleware functions.
+ * @returns A single composed middleware.
+ */
+export function pipe<S extends Record<string | symbol, any>>(
+  ...middlewares: Middleware<S>[]
+): Middleware<S> {
+  return (base: ProxyHandler<S>) => {
+    // Reduce right-to-left to wrap the base correctly
+    return middlewares.reduceRight((next, mw) => mw(next), base);
+  };
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
 // State Focus Primitives  
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
 
