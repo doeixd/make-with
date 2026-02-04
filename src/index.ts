@@ -2656,6 +2656,82 @@ type WithFallback<
 
 // ---------- runtime ----------
 
+/**
+ * Create a single function that *dispatches at runtime* using type predicates,
+ * while producing *compile-time overload types* (one call signature per case).
+ *
+ * Each overload "case" is a tuple:
+ *   - `[pred, impl]` where `pred` guards **only the first argument**, OR
+ *   - `[[pred0, pred1, ...], impl]` where each predicate guards the
+ *     corresponding argument.
+ *
+ * At runtime, the returned function tries cases in order:
+ * 1) For a single predicate case: `pred(args[0])`
+ * 2) For a predicate-list case:   `preds[i](args[i])` for each predicate
+ * If a case matches, its implementation is called with the original arguments.
+ * If none match, `fallback` is called if provided; otherwise an error is thrown.
+ *
+ * ## Why this exists
+ * - You want a single callable function (nice ergonomics)
+ * - You want real runtime dispatch (not just TS overload declarations)
+ * - You still want the compiler to enforce correct argument/return types
+ *
+ * ## Basic example (single-argument dispatch)
+ * ```ts
+ * const isString = (x: unknown): x is string => typeof x === "string";
+ * const isNumber = (x: unknown): x is number => typeof x === "number";
+ *
+ * const fn = createOverloadedFunction(
+ *   overloads(
+ *     [isString, (s: string) => s.toUpperCase()],
+ *     [isNumber, (n: number) => n.toFixed(2)],
+ *   )
+ * );
+ *
+ * const a = fn("hi"); // string
+ * const b = fn(3);    // string
+ * // fn(true)  // ❌ compile-time: no overload for boolean (and runtime would throw)
+ * ```
+ *
+ * ## Multi-argument dispatch (predicate per argument)
+ * ```ts
+ * const isNumber = (x: unknown): x is number => typeof x === "number";
+ * const isBool   = (x: unknown): x is boolean => typeof x === "boolean";
+ *
+ * const fn = createOverloadedFunction(
+ *   overloads(
+ *     [args(isNumber, isBool), (n: number, b: boolean) => (b ? n : -n)],
+ *     [args(isNumber, isNumber), (a: number, b: number, scale: number) => (a + b) * scale],
+ *   )
+ * );
+ *
+ * fn(10, true);     // number
+ * fn(2, 3, 10);     // number
+ * // fn(2, "x")     // ❌ compile-time
+ * ```
+ *
+ * ## Fallback example
+ * The fallback contributes an *additional call signature* equal to its own type,
+ * and is invoked when no predicates match.
+ *
+ * ```ts
+ * const isString = (x: unknown): x is string => typeof x === "string";
+ *
+ * const fn = createOverloadedFunction(
+ *   overloads([isString, (s: string) => s.length]),
+ *   (x: unknown) => 0
+ * );
+ *
+ * fn("hey"); // number (3)
+ * fn({});    // number (0) via fallback
+ * ```
+ *
+ * ## Notes / gotchas
+ * - **Order matters**: first matching case wins.
+ * - Keep predicates **pure** and **fast**; they run on every call.
+ * - Use `args(...)` and `overloads(...)` to avoid needing `as const` and to keep
+ *   the best overload typing.
+ */
 export function createOverloadedFunction<
   const Pairs extends readonly Pair[],
   Fallback extends ((...args: any[]) => any) | undefined = undefined
