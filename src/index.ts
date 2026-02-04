@@ -2577,3 +2577,112 @@ export type ComposableMethods<S extends object, PrevMethods extends Methods<S> =
   : never;
 };
 
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+type TypeGuard<T> = (value: unknown) => value is T;
+type GuardedType<P> = P extends TypeGuard<infer T> ? T : never;
+
+type GuardedArgs<Preds extends readonly TypeGuard<any>[]> = {
+  [K in keyof Preds]: Preds[K] extends TypeGuard<infer T> ? T : never;
+};
+
+type Tail<T extends readonly any[]> = T extends readonly [any, ...infer R] ? R : never;
+
+type Drop<
+  T extends readonly any[],
+  N extends number,
+  I extends readonly any[] = []
+> = I["length"] extends N
+  ? T
+  : T extends readonly [any, ...infer R]
+    ? Drop<R, N, [...I, any]>
+    : readonly [];
+
+type PredOrPreds = TypeGuard<any> | readonly TypeGuard<any>[];
+type Pair = readonly [PredOrPreds, (...args: any[]) => any];
+
+/**
+ * args(...) helper: forces a const tuple of predicates without needing `as const`.
+ *
+ * Usage:
+ *   args(isNumber, isString) // readonly [.., ..]
+ */
+export function args<const P extends readonly TypeGuard<any>[]>(...preds: P): P {
+  return preds;
+}
+
+/**
+ * overloads(...) helper: forces a const tuple of overload pairs without needing `as const`.
+ *
+ * Usage:
+ *   overloads(
+ *     [isString, (s: string) => ...],
+ *     [args(isNumber, isBool), (n: number, b: boolean) => ...],
+ *   )
+ */
+export function overloads<const P extends readonly Pair[]>(...pairs: P): P {
+  return pairs;
+}
+
+type PairToSignature<P extends Pair> =
+  P extends readonly [infer PP, infer Impl]
+    ? Impl extends (...args: any[]) => any
+      ? PP extends TypeGuard<any>
+        ? (a0: GuardedType<PP>, ...rest: Tail<Parameters<Impl>>) => ReturnType<Impl>
+        : PP extends readonly TypeGuard<any>[]
+          ? (
+              ...args: [
+                ...GuardedArgs<PP>,
+                ...Drop<Parameters<Impl>, PP["length"] & number>
+              ]
+            ) => ReturnType<Impl>
+          : never
+      : never
+    : never;
+
+type UnionToIntersection<U> =
+  (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never;
+
+type OverloadedFromPairs<Pairs extends readonly Pair[]> =
+  UnionToIntersection<PairToSignature<Pairs[number]>>;
+
+type WithFallback<
+  Pairs extends readonly Pair[],
+  Fallback extends ((...args: any[]) => any) | undefined
+> = Fallback extends (...args: any[]) => any
+  ? OverloadedFromPairs<Pairs> & Fallback
+  : OverloadedFromPairs<Pairs>;
+
+// ---------- runtime ----------
+
+export function createOverloadedFunction<
+  const Pairs extends readonly Pair[],
+  Fallback extends ((...args: any[]) => any) | undefined = undefined
+>(
+  pairs: Pairs,
+  fallback?: Fallback
+): WithFallback<Pairs, Fallback> {
+  const fn = ((...callArgs: any[]) => {
+    for (const [predOrPreds, impl] of pairs as readonly Pair[]) {
+      if (typeof predOrPreds === "function") {
+        if (predOrPreds(callArgs[0])) return (impl as any)(...callArgs);
+      } else {
+        const preds = predOrPreds;
+        let ok = true;
+        for (let i = 0; i < preds.length; i++) {
+          if (!preds[i]!(callArgs[i])) {
+            ok = false;
+            break;
+          }
+        }
+        if (ok) return (impl as any)(...callArgs);
+      }
+    }
+
+    if (fallback) return (fallback as any)(...callArgs);
+    throw new TypeError("No overload matched and no fallback was provided.");
+  }) as any;
+
+  return fn;
+}
