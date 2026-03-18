@@ -89,9 +89,22 @@
       },
       "require": "./dist/cjs/production/index.js",
       "import": "./dist/esm/production/index.js"
+    },
+    "./fn": {
+      "types": "./dist/types/fn.d.ts",
+      "development": {
+        "require": "./dist/cjs/development/fn.js",
+        "import": "./dist/esm/development/fn.js"
+      },
+      "require": "./dist/cjs/production/fn.js",
+      "import": "./dist/esm/production/fn.js"
     }
   },
   "typesVersions": {
-    "*": {}
+    "*": {
+      "fn": [
+        "./dist/types/fn.d.ts"
+      ]
+    }
   }
 }
