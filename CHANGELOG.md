@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.8](https://github.com/doeixd/make-with/compare/v0.0.7...v0.0.8) (2026-03-18)
+
+
+### Features
+
+* add custom merge option to fallback chains ([304bd53](https://github.com/doeixd/make-with/commit/304bd53792e63405c0e4c9af5b5c2d82fa4cf33b))
+
 ### [0.0.7](https://github.com/doeixd/make-with/compare/v0.0.6...v0.0.7) (2026-03-18)
 
 
