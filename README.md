@@ -329,21 +329,35 @@ For a comprehensive collection of examples demonstrating every feature of the li
 | `makeLayered`| - | **(Advanced)** Creates a multi-layered, self-aware API using a fluent interface. |
 | `enrich` | - | **(Advanced)** Composes two dependent factory functions and merges their results. |
 
+#### Submodules
+
+| Submodule | Description |
+|---|---|
+| `@doeixd/make-with/fn` | Tree-shakeable functional combinators: `pipe`, `curry`, `dataLast`, `flex`, `tap`, `maybe`, `converge`, `ifElse`, and more. |
+| `@doeixd/make-with/fallback` | Proxy-based fallback chains with deep nested lookup, getter/setter support, stable proxy caching, and `snapshot()` for materializing proxied objects. |
+
 ### Import Patterns
 
 **Named Imports (Recommended):**
 ```typescript
-import { 
-  makeWith, 
-  makeChainable, 
-  makeLayered, 
-  compose, 
-  merge, 
-  createMerger, 
-  createProxy, 
-  createLens, 
-  withFallback 
+import {
+  makeWith,
+  makeChainable,
+  makeLayered,
+  compose,
+  merge,
+  createMerger,
+  createProxy,
+  createLens,
+  withFallback
 } from '@doeixd/make-with';
+```
+
+**Submodule Imports (Tree-shakeable):**
+```typescript
+// Only pulls in what you use
+import { pipe, tap, dataLast, flex } from '@doeixd/make-with/fn';
+import { fallback, snapshot } from '@doeixd/make-with/fallback';
 ```
 
 **Default Import (All functions):**
@@ -1450,6 +1464,76 @@ const counter = makeWith({ count: 0 })({
   })
 });
 ```
+
+## 🔧 Submodules
+
+### `@doeixd/make-with/fn` — Functional Combinators
+
+A collection of standalone, tree-shakeable functional programming utilities. Import only what you need — bundlers will drop the rest.
+
+```typescript
+import { pipe, tap, curry, dataLast, flex, maybe, ifElse, chain, def } from '@doeixd/make-with/fn';
+
+// pipe: left-to-right function composition
+const process = pipe(
+  (x: number) => x * 2,
+  (x: number) => x + 1
+);
+process(5); // 11
+
+// dataLast: convert data-first functions to data-last with auto-currying
+const getField = (obj: Record<string, any>, key: string) => obj[key];
+const getFieldLast = dataLast(getField, { arity: 2 });
+getFieldLast('name')({ name: 'Alice' }); // curried
+getFieldLast('name', { name: 'Alice' }); // immediate
+
+// flex: accept data in any position
+const flexGet = flex(getField, (v): v is Record<string, any> =>
+  typeof v === 'object' && v !== null);
+flexGet({ a: 1 }, 'a'); // data-first
+flexGet('a', { a: 1 }); // data-last
+flexGet('a')({ a: 1 }); // curried
+
+// def: dual-mode (imperative or curried) function builder
+const greet = def((name: string | null, greeting: string) =>
+  `${greeting}, ${name}!`);
+greet('Alice', 'Hello');   // imperative
+greet('Alice')('Hello');   // curried
+```
+
+A convenience `Fn` namespace is also exported for those who prefer `Fn.pipe(...)` style, but it is not tree-shakeable.
+
+### `@doeixd/make-with/fallback` — Proxy-Based Fallback Chains
+
+Create proxy objects that resolve missing properties from a chain of fallback objects, with deep recursive lookup, getter/setter support, and stable proxy caching.
+
+```typescript
+import { fallback, snapshot } from '@doeixd/make-with/fallback';
+
+const user = { name: 'Ada' };
+const defaults = { role: 'admin', active: true };
+
+const value = fallback(user, [defaults]);
+value.name;   // "Ada"
+value.role;   // "admin" (from defaults)
+value.active; // true (from defaults)
+
+// Deep nested fallback
+const config = fallback(
+  { api: { timeout: undefined } },
+  [{ api: { timeout: 5000, retries: 3 } }],
+  { isPresent: (v) => v !== undefined && v !== null }
+);
+config.api.timeout; // 5000
+config.api.retries; // 3
+
+// Materialize a proxy into a plain object
+const plain = snapshot(config);
+```
+
+The `withFallback` builder API in the main entry point now delegates to this implementation internally.
+
+<br />
 
 ## ❓ FAQ
 

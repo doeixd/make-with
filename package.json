@@ -98,12 +98,24 @@
       },
       "require": "./dist/cjs/production/fn.js",
       "import": "./dist/esm/production/fn.js"
+    },
+    "./fallback": {
+      "types": "./dist/types/fallback.d.ts",
+      "development": {
+        "require": "./dist/cjs/development/fallback.js",
+        "import": "./dist/esm/development/fallback.js"
+      },
+      "require": "./dist/cjs/production/fallback.js",
+      "import": "./dist/esm/production/fallback.js"
     }
   },
   "typesVersions": {
     "*": {
       "fn": [
         "./dist/types/fn.d.ts"
+      ],
+      "fallback": [
+        "./dist/types/fallback.d.ts"
       ]
     }
   }

@@ -2,6 +2,7 @@
   "target": "es2018",
   "entrypoints": {
     ".": "src/index.ts",
-    "./fn": "src/fn.ts"
+    "./fn": "src/fn.ts",
+    "./fallback": "src/fallback.ts"
   }
 }

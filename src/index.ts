@@ -1742,6 +1742,10 @@ export function createLens<S extends object, T>(
 // Fallback Chain Primitives
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
 
+import { fallback as fallbackCore, snapshot } from './fallback';
+export { fallback as objectFallback, snapshot } from './fallback';
+export type { FallbackOptions, PresentPredicate, Snapshot } from './fallback';
+
 /** Type for value validator function */
 type ValueValidator<T = any> = (value: T) => boolean;
 
@@ -1916,7 +1920,6 @@ export function withFallback<T extends Record<string | symbol, any>>(
     throw createError('withFallback', 'Validator must be a function');
   }
 
-  // Keep track of the fallback chain
   const fallbackChain: Partial<T>[] = [];
 
   function createBuilder(): FallbackChainBuilder<T> {
@@ -1924,15 +1927,15 @@ export function withFallback<T extends Record<string | symbol, any>>(
     function builder(fallbackObject: Partial<T>): FallbackChainBuilder<T>;
     function builder(fallbackObject?: Partial<T>): any {
       if (fallbackObject === undefined) {
-        // Finalize and return the proxy
-        return createFallbackProxy(primaryObject, fallbackChain, validator);
+        return fallbackCore(primaryObject, fallbackChain, {
+          isPresent: validator,
+        }) as T;
       }
 
       if (!fallbackObject || typeof fallbackObject !== 'object') {
         throw createError('withFallback', 'Fallback object must be a non-null object');
       }
 
-      // Add to fallback chain and return new builder
       fallbackChain.push(fallbackObject);
       return createBuilder();
     }
@@ -1941,152 +1944,6 @@ export function withFallback<T extends Record<string | symbol, any>>(
   }
 
   return createBuilder();
-}
-
-/**
- * Creates the actual proxy that implements the fallback traversal logic.
- */
-function createFallbackProxy<T extends Record<string | symbol, any>>(
-  primaryObject: T,
-  fallbackChain: Partial<T>[],
-  validator: ValueValidator
-): T {
-  return new Proxy(primaryObject, {
-    get(target: T, prop: string | symbol): any {
-      // Handle special properties
-      if (typeof prop === 'symbol' || prop === 'constructor' || prop === 'toString' || prop === 'valueOf') {
-        return target[prop];
-      }
-
-      // Traverse the fallback chain to find a valid value
-      const objectsToCheck = [target, ...fallbackChain];
-      
-      for (const obj of objectsToCheck) {
-        if (obj && typeof obj === 'object' && prop in obj) {
-          const value = (obj as any)[prop];
-          
-          try {
-            if (validator(value)) {
-              // If the value is from a nested object, we need to create a nested proxy
-              if (value && typeof value === 'object' && !Array.isArray(value)) {
-                // Create nested fallback proxies for object values
-                const nestedFallbacks: any[] = [];
-                
-                // Collect corresponding nested objects from the fallback chain
-                for (const fallbackObj of fallbackChain) {
-                  if (fallbackObj && typeof fallbackObj === 'object' && prop in fallbackObj) {
-                    const nestedValue = (fallbackObj as any)[prop];
-                    if (nestedValue && typeof nestedValue === 'object' && !Array.isArray(nestedValue)) {
-                      nestedFallbacks.push(nestedValue);
-                    }
-                  }
-                }
-                
-                // Return a nested proxy if we have nested objects to fall back to
-                if (nestedFallbacks.length > 0) {
-                  return createFallbackProxy(value, nestedFallbacks, validator);
-                }
-              }
-              
-              return value;
-            }
-          } catch (error) {
-            // If validator throws, continue to next fallback
-            continue;
-          }
-        }
-      }
-
-      // No valid value found in the entire chain
-      return undefined;
-    },
-
-    set(target: T, prop: string | symbol, value: any): boolean {
-      // Always set on the primary object
-      try {
-        (target as any)[prop] = value;
-        return true;
-      } catch (error) {
-        return false;
-      }
-    },
-
-    has(target: T, prop: string | symbol): boolean {
-      // Check if property exists in any object in the chain
-      const objectsToCheck = [target, ...fallbackChain];
-      
-      for (const obj of objectsToCheck) {
-        if (obj && typeof obj === 'object' && prop in obj) {
-          return true;
-        }
-      }
-      
-      return false;
-    },
-
-    ownKeys(target: T): ArrayLike<string | symbol> {
-      // Collect all keys from all objects in the chain
-      const allKeys = new Set<string | symbol>();
-      const objectsToCheck = [target, ...fallbackChain];
-      
-      for (const obj of objectsToCheck) {
-        if (obj && typeof obj === 'object') {
-          // Get own enumerable property names
-          Object.getOwnPropertyNames(obj).forEach(key => allKeys.add(key));
-          // Get own symbol properties
-          Object.getOwnPropertySymbols(obj).forEach(symbol => allKeys.add(symbol));
-        }
-      }
-      
-      return Array.from(allKeys);
-    },
-
-    getOwnPropertyDescriptor(target: T, prop: string | symbol): PropertyDescriptor | undefined {
-      // Check primary object first
-      const primaryDesc = Object.getOwnPropertyDescriptor(target, prop);
-      if (primaryDesc) {
-        return primaryDesc;
-      }
-
-      // Check fallback chain
-      for (const obj of fallbackChain) {
-        if (obj && typeof obj === 'object') {
-          const desc = Object.getOwnPropertyDescriptor(obj, prop);
-          if (desc) {
-            // Return a descriptor that points to our proxy's get/set behavior
-            return {
-              configurable: true,
-              enumerable: desc.enumerable,
-              writable: true,
-              value: undefined // Will be overridden by the proxy get trap
-            };
-          }
-        }
-      }
-
-      return undefined;
-    },
-
-    deleteProperty(target: T, prop: string | symbol): boolean {
-      // Only delete from primary object
-      try {
-        delete (target as any)[prop];
-        return true;
-      } catch (error) {
-        return false;
-      }
-    },
-
-    defineProperty(target: T, prop: string | symbol, descriptor: PropertyDescriptor): boolean {
-      // Only define on primary object
-      try {
-        Object.defineProperty(target, prop, descriptor);
-        return true;
-      } catch (error) {
-        return false;
-      }
-    }
-  });
 }
 
 /**
@@ -2553,6 +2410,8 @@ export default {
   fallback,
   createLens,
   withFallback,
+  objectFallback: fallbackCore,
+  snapshot,
 };
 
 
