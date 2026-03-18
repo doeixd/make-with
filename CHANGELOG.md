@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.6](https://github.com/doeixd/make-with/compare/v0.0.5...v0.0.6) (2026-03-18)
+
+
+### Bug Fixes
+
+* update tests to match current error messages and API ([e2d18b8](https://github.com/doeixd/make-with/commit/e2d18b8ecb8816421272af37d9add2a059d02a8b))
+
 ### [0.0.5](https://github.com/doeixd/make-with/compare/v0.0.4...v0.0.5) (2025-07-02)
 
 ### [0.0.4](https://github.com/doeixd/make-with/compare/v0.0.3...v0.0.4) (2025-07-02)
