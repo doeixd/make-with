@@ -1744,7 +1744,7 @@ export function createLens<S extends object, T>(
 
 import { fallback as fallbackCore, snapshot } from './fallback';
 export { fallback as objectFallback, snapshot } from './fallback';
-export type { FallbackOptions, PresentPredicate, Snapshot } from './fallback';
+export type { FallbackOptions, MergeFn, PresentPredicate, Snapshot } from './fallback';
 
 /** Type for value validator function */
 type ValueValidator<T = any> = (value: T) => boolean;

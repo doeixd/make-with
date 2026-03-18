@@ -26,6 +26,24 @@ type MergeVisible<T extends readonly object[]> = UnionToIntersection<T[number]>;
 /**
  * Options for {@link fallback}.
  */
+/**
+ * Called when multiple sources provide a present value for the same property.
+ *
+ * Receives the subject's value, the fallback's value, and the property key.
+ * The returned value is used as the resolved value. Called once per fallback
+ * source that has a present value, reducing left-to-right through the chain.
+ *
+ * @param subjectValue - The accumulated value so far (starts with the subject's value)
+ * @param fallbackValue - The value from the current fallback source
+ * @param key - The property key being resolved
+ * @returns The merged value
+ */
+export type MergeFn = (
+  subjectValue: unknown,
+  fallbackValue: unknown,
+  key: PropertyKey,
+) => unknown;
+
 export interface FallbackOptions<Base = undefined> {
   /**
    * Determines whether a value counts as present.
@@ -53,6 +71,31 @@ export interface FallbackOptions<Base = undefined> {
    * Default: `true`
    */
   deep?: boolean;
+
+  /**
+   * Custom merge function called when multiple sources provide a present value
+   * for the same property.
+   *
+   * Without this, the first present value wins (standard fallback behavior).
+   * With this, all present values are reduced left-to-right through the merge
+   * function, giving you control over how values combine.
+   *
+   * @example
+   * ```ts
+   * // Concatenate arrays, take first value for everything else
+   * const config = fallback(
+   *   { tags: ['urgent'] },
+   *   [{ tags: ['bug', 'frontend'] }],
+   *   {
+   *     isPresent: (v) => v !== undefined && v !== null,
+   *     merge: (a, b, key) =>
+   *       Array.isArray(a) && Array.isArray(b) ? [...a, ...b] : a,
+   *   },
+   * );
+   * config.tags; // ['urgent', 'bug', 'frontend']
+   * ```
+   */
+  merge?: MergeFn;
 }
 
 /**
@@ -175,6 +218,7 @@ export function fallback<
     options.isPresent ?? ((value) => Boolean(value));
   const base = options.base as Base;
   const deep = options.deep ?? true;
+  const merge = options.merge;
 
   /**
    * Returns `true` for non-null objects and functions.
@@ -224,7 +268,10 @@ export function fallback<
   };
 
   /**
-   * Resolves the first present value for a property across the given sources.
+   * Resolves a property value across the given sources.
+   *
+   * Without a merge function, returns the first present value (standard
+   * fallback). With a merge function, reduces all present values left-to-right.
    *
    * `receiver` is forwarded so native getter semantics are preserved.
    */
@@ -233,12 +280,30 @@ export function fallback<
     sources: readonly object[],
     receiver: unknown,
   ): unknown => {
-    for (let index = 0; index < sources.length; index += 1) {
-      const value = Reflect.get(sources[index], key, receiver);
-      if (isPresent(value)) return value;
+    if (!merge) {
+      for (let index = 0; index < sources.length; index += 1) {
+        const value = Reflect.get(sources[index], key, receiver);
+        if (isPresent(value)) return value;
+      }
+      return base;
     }
 
-    return base;
+    let accumulated: unknown = undefined;
+    let found = false;
+
+    for (let index = 0; index < sources.length; index += 1) {
+      const value = Reflect.get(sources[index], key, receiver);
+      if (!isPresent(value)) continue;
+
+      if (!found) {
+        accumulated = value;
+        found = true;
+      } else {
+        accumulated = merge(accumulated, value, key);
+      }
+    }
+
+    return found ? accumulated : base;
   };
 
   /**
