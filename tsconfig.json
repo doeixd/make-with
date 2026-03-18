@@ -18,6 +18,7 @@
     "esModuleInterop": true,
     "target": "es2018",
     "useDefineForClassFields": false,
-    "declarationMap": true
+    "declarationMap": true,
+    "skipLibCheck": true
   }
 }

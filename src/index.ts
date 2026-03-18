@@ -1471,7 +1471,7 @@ export function fuzzyMatch<S extends Record<string | symbol, any>>(
  * A Higher-Order Handler (Middleware).
  * It expects a 'next' handler and returns a new handler.
  */
-type Middleware<S> = (next: ProxyHandler<S>) => ProxyHandler<S>;
+type Middleware<S extends Record<string | symbol, any>> = (next: ProxyHandler<S>) => ProxyHandler<S>;
 
 /**
  * "Lowers" a generic Middleware into a concrete Handler that can be passed
