@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.7](https://github.com/doeixd/make-with/compare/v0.0.6...v0.0.7) (2026-03-18)
+
+
+### Features
+
+* add fallback submodule, replace withFallback internals, update docs ([e637e4c](https://github.com/doeixd/make-with/commit/e637e4c42f2d7809709702b2f95d9881b355ef15))
+* add fn submodule with tree-shakeable functional combinators ([e5fbe9f](https://github.com/doeixd/make-with/commit/e5fbe9fff9a3240ec5ec273de3d79b63431088de))
+
+
+### Bug Fixes
+
+* resolve type errors in Middleware generic and add skipLibCheck ([858d716](https://github.com/doeixd/make-with/commit/858d71617a78059c06476f089ae0ff076c0fd1fd))
+
 ### [0.0.6](https://github.com/doeixd/make-with/compare/v0.0.5...v0.0.6) (2026-03-18)
 
 
